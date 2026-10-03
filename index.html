@@ -81,6 +81,16 @@
   .banner { background: color-mix(in srgb, var(--brick) 18%, var(--bg-elevated)); border: 1px solid var(--brick); color: var(--ink); padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
   .footer-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 20px; }
   a.link { color: var(--gold); cursor: pointer; }
+  .login-hero {
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.07) 0 3px, transparent 3px 40px),
+      var(--turf);
+    color: var(--turf-ink);
+    border-bottom: 3px solid var(--gold);
+    padding: calc(env(safe-area-inset-top, 0px) + 36px) 20px 28px;
+    text-align: center;
+  }
+  .login-hero h1 { font-size: 40px; letter-spacing: 0.04em; margin: 0 0 6px; color: var(--gold); }
   .authtabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .authtabs button { flex: 1; }
   .sched-row { border-bottom: 1px solid var(--border); padding: 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
@@ -211,8 +221,9 @@ function renderTabs(){
 function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':'') + '" onclick="App.setView(\'' + id + '\')">' + esc(label) + '</button>'; }
 
 function renderLogin(){
-  return '<div class="content" style="padding-top:50px;">' +
-    '<h1 style="font-size:34px;text-align:center;margin-bottom:4px;">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</h1>' +
+  return '<div class="login-hero"><h1>' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</h1>' +
+    '<div class="muted" style="color:var(--turf-ink);opacity:0.85;">Confidence picks. Bragging rights. Every week.</div></div>' +
+    '<div class="content" style="padding-top:22px;">' +
     '<div class="authtabs">' +
       '<button class="btn ' + (authMode==='login'?'btn-primary':'') + '" onclick="App.setAuthMode(\'login\')">Log In</button>' +
       '<button class="btn ' + (authMode==='signup'?'btn-primary':'') + '" onclick="App.setAuthMode(\'signup\')">Create Account</button>' +
