@@ -31,7 +31,17 @@
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Work Sans", system-ui, -apple-system, sans-serif; line-height: 1.45; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Work Sans", system-ui, -apple-system, sans-serif;
+    line-height: 1.45;
+    scroll-padding-top: env(safe-area-inset-top, 0px);
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.07) 0 2px, transparent 2px 5%, transparent 5%),
+      repeating-linear-gradient(90deg, color-mix(in srgb, var(--turf) 92%, white) 0 10%, color-mix(in srgb, var(--turf) 80%, black) 10% 20%);
+    background-attachment: fixed;
+  }
   h1, h2, h3, .num { font-family: "Bebas Neue", "Arial Narrow", sans-serif; letter-spacing: 0.03em; font-weight: 400; }
   #app { max-width: 640px; margin: 0 auto; padding: 0 0 48px; min-height: 100%; }
   .topbar {
@@ -115,6 +125,11 @@ let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
 let adminDraftGames = null;
 let scheduleFilter = '';
+let pendingWeekInput = null;
+
+const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
+
+const FBS_TEAMS = ["Boston College","California","Clemson","Duke","Florida State","Georgia Tech","Louisville","Miami (FL)","NC State","North Carolina","Pittsburgh","SMU","Stanford","Syracuse","Virginia","Virginia Tech","Wake Forest","Army","Charlotte","East Carolina","Florida Atlantic","Memphis","Navy","North Texas","Rice","Temple","Tulane","Tulsa","UAB","USF","UTSA","Illinois","Indiana","Iowa","Maryland","Michigan","Michigan State","Minnesota","Nebraska","Northwestern","Ohio State","Oregon","Penn State","Purdue","Rutgers","UCLA","USC","Washington","Wisconsin","Delaware","FIU","Jacksonville State","Kennesaw State","Liberty","Middle Tennessee","Missouri State","New Mexico State","Sam Houston","Western Kentucky","Notre Dame","UConn","Akron","Ball State","Bowling Green","Buffalo","Central Michigan","Eastern Michigan","Kent State","Miami (OH)","Ohio","Sacramento State","Toledo","UMass","Western Michigan","Air Force","Hawai'i","Nevada","New Mexico","North Dakota State","Northern Illinois","San José State","UNLV","UTEP","Wyoming","Boise State","Colorado State","Fresno State","Oregon State","San Diego State","Texas State","Utah State","Washington State","Alabama","Arkansas","Auburn","Florida","Georgia","Kentucky","LSU","Mississippi State","Missouri","Oklahoma","Ole Miss","South Carolina","Tennessee","Texas","Texas A&M","Vanderbilt","Arizona","Arizona State","Baylor","BYU","Cincinnati","Colorado","Houston","Iowa State","Kansas","Kansas State","Oklahoma State","TCU","Texas Tech","UCF","Utah","West Virginia","Appalachian State","Coastal Carolina","Georgia Southern","Georgia State","James Madison","Marshall","Old Dominion","Arkansas State","Louisiana","Louisiana Tech","South Alabama","Southern Miss","Troy","ULM"];
 let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [] };
 
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -355,7 +370,7 @@ function renderAdmin(){
     adminDraftGames = slots; adminDraftGames._week = wk;
   }
   let html = '<div class="card"><label>Current week number</label>' +
-    '<div class="row"><input id="ad-week" type="number" min="1" value="' + esc(wk) + '">' +
+    '<div class="row"><input id="ad-week" type="number" min="1" value="' + esc(pendingWeekInput != null ? pendingWeekInput : wk) + '" oninput="App.setPendingWeek(this.value)">' +
     '<button class="btn" onclick="App.setCurrentWeek()">Switch / Create</button></div></div>';
   html += '<div class="card"><h3 style="margin-top:0;">Week ' + esc(wk) + ' Games</h3>' +
     '<p class="muted">Fill in all 11 games plus the Monday-night tiebreaker, then tap Save Week at the bottom. Leave a slot blank to skip it.</p>' +
@@ -367,8 +382,8 @@ function renderAdmin(){
       '<div class="game-meta"><strong style="color:var(--ink);">' + esc(label) + '</strong>' +
       (g.isTiebreaker ? '' : '<select style="width:auto;" onchange="App.setSlotField(' + i + ',\'league\',this.value)">' +
         '<option ' + (g.league==='NFL'?'selected':'') + '>NFL</option><option ' + (g.league==='College'?'selected':'') + '>College</option></select>') + '</div>' +
-      '<div class="row"><input placeholder="Away team" value="' + esc(g.away) + '" onchange="App.setSlotField(' + i + ',\'away\',this.value)">' +
-      '<input placeholder="Home team" value="' + esc(g.home) + '" onchange="App.setSlotField(' + i + ',\'home\',this.value)"></div>' +
+      '<div class="row"><input placeholder="Away team" list="' + (g.isTiebreaker||g.league==='NFL'?'nfl-teams':'fbs-teams') + '" value="' + esc(g.away) + '" onchange="App.setSlotField(' + i + ',\'away\',this.value)">' +
+      '<input placeholder="Home team" list="' + (g.isTiebreaker||g.league==='NFL'?'nfl-teams':'fbs-teams') + '" value="' + esc(g.home) + '" onchange="App.setSlotField(' + i + ',\'home\',this.value)"></div>' +
       '<label>Kickoff</label><input type="datetime-local" value="' + toLocalInputValue(g.kickoff) + '" onchange="App.setSlotField(' + i + ',\'kickoff\',this.value)">';
     if (hasNames){
       html += '<div class="row" style="margin-top:8px;">' +
@@ -482,14 +497,15 @@ const App = {
     } catch(e){ showError(e); }
   },
 
+  setPendingWeek(v){ pendingWeekInput = v; },
   async setCurrentWeek(){
-    const n = parseInt(document.getElementById('ad-week').value, 10);
+    const n = parseInt(pendingWeekInput != null ? pendingWeekInput : document.getElementById('ad-week').value, 10);
     if (!n || n < 1){ alert('Enter a valid week number.'); return; }
     try {
       await sb.from('weeks').upsert({ week_number: n }, { onConflict: 'week_number', ignoreDuplicates: true });
       await sb.from('pool_config').update({ current_week: n }).eq('id', 1);
       await loadConfig(); await loadWeekGames(n);
-      adminDraftGames = null; render();
+      pendingWeekInput = null; adminDraftGames = null; render();
     } catch(e){ showError(e); }
   },
   setSlotField(i, field, value){
@@ -539,9 +555,19 @@ const App = {
 };
 window.App = App;
 
+function injectTeamDatalists(){
+  if (document.getElementById('nfl-teams')) return;
+  const nfl = document.createElement('datalist'); nfl.id = 'nfl-teams';
+  nfl.innerHTML = NFL_TEAMS.map(t => '<option value="' + esc(t) + '">').join('');
+  const fbs = document.createElement('datalist'); fbs.id = 'fbs-teams';
+  fbs.innerHTML = FBS_TEAMS.map(t => '<option value="' + esc(t) + '">').join('');
+  document.body.appendChild(nfl); document.body.appendChild(fbs);
+}
+
 // ---------- boot ----------
 async function boot(){
   try {
+    injectTeamDatalists();
     const { data: { session: authSession } } = await sb.auth.getSession();
     if (authSession && authSession.user){
       const { data: profile } = await sb.from('profiles').select('*').eq('id', authSession.user.id).maybeSingle();
