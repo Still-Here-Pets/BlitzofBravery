@@ -154,6 +154,8 @@ let draft = null;
 let adminDraftGames = null;
 let scheduleFilter = '';
 let scheduleLeagueFilter = '';
+let scheduleSelected = {};
+let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
 
 const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
@@ -385,12 +387,14 @@ function renderScheduleBrowser(){
   const windowDays = startDate ? [startDate, addDays(startDate,1), addDays(startDate,2)] : null;
   const list = (STATE.scheduleCache || []).filter(r => !windowDays || windowDays.includes(gameDayET(r.kickoff)));
   const filt = scheduleFilter.trim().toLowerCase();
-  const rows = list.filter(r => (!filt || (r.away+' '+r.home+' '+r.league).toLowerCase().includes(filt)) && (!scheduleLeagueFilter || r.league === scheduleLeagueFilter));
-  const slotOptions = adminDraftGames.map((g,i) => '<option value="'+i+'">' + (g.isTiebreaker?'Tiebreaker':'Game '+(i+1)) + '</option>').join('');
+  const rows = list.filter(r => (!filt || (r.away+' '+r.home+' '+r.league).toLowerCase().includes(filt)) && (!scheduleLeagueFilter || r.league === scheduleLeagueFilter))
+    .slice().sort((a,b) => new Date(a.kickoff) - new Date(b.kickoff));
   if (!startDate){
     return '<div class="banner">Set this week\'s start date above to see its Saturday/Sunday/Monday games here.</div>';
   }
+  const selectedCount = Object.keys(scheduleSelected).filter(id => scheduleSelected[id]).length;
   let html = '<details class="sched-browser" open><summary>Browse cached schedule &amp; spreads (' + list.length + ' this week)</summary>' +
+    '<p class="muted" style="margin-top:8px;">Check the games you want, sorted by kickoff. Mark one as the tiebreaker. Then tap Populate below — games fill slots in kickoff order automatically.</p>' +
     '<div class="row" style="margin-top:10px;">' +
       '<button class="btn ' + (scheduleLeagueFilter==='NFL'?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'NFL\')">NFL</button>' +
       '<button class="btn ' + (scheduleLeagueFilter==='College'?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'College\')">FBS</button>' +
@@ -399,11 +403,18 @@ function renderScheduleBrowser(){
     '<input placeholder="Filter by team…" style="margin:10px 0;" oninput="App.setScheduleFilter(this.value)" value="' + esc(scheduleFilter) + '">';
   if (!rows.length) html += '<p class="muted">No cached games match, or the cache is empty — ask in chat to refresh it.</p>';
   rows.forEach(r => {
-    html += '<div class="sched-row"><div>' + esc(r.league) + ': ' + esc(r.away) + ' @ ' + esc(r.home) +
-      '<div class="muted">' + kickoffLabel(r.kickoff) + (r.spread ? ' &middot; ' + esc(r.spread) : '') + '</div></div>' +
-      '<div style="display:flex;gap:6px;"><select id="sched-target-' + esc(r.id) + '">' + slotOptions + '</select>' +
-      '<button class="btn" onclick="App.fillSlotFromSchedule(\'' + r.id + '\')">Use</button></div></div>';
+    const isSel = !!scheduleSelected[r.id];
+    const isTb = scheduleTiebreakerId === r.id;
+    html += '<div class="sched-row" style="align-items:flex-start;">' +
+      '<label style="display:flex;gap:8px;align-items:flex-start;flex:1;">' +
+        '<input type="checkbox" style="width:auto;margin-top:3px;" ' + (isSel?'checked':'') + ' onchange="App.toggleScheduleSelect(\'' + r.id + '\')">' +
+        '<div><div>' + esc(r.league) + ': ' + esc(r.away) + ' @ ' + esc(r.home) + (r.records ? ' <span class="muted">(' + esc(r.records) + ')</span>' : '') + '</div>' +
+        '<div class="muted">' + kickoffLabel(r.kickoff) + (r.spread ? ' &middot; ' + esc(r.spread) : '') + '</div></div>' +
+      '</label>' +
+      '<button class="btn ' + (isTb?'btn-primary':'') + '" style="flex:0 0 auto;font-size:12px;" onclick="App.setScheduleTiebreaker(\'' + r.id + '\')">' + (isTb?'Tiebreaker ✓':'Set TB') + '</button>' +
+    '</div>';
   });
+  html += '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="App.populateFromSelection()">Populate Selected (' + selectedCount + (scheduleTiebreakerId?' + TB':'') + ')</button>';
   html += '</details>';
   return html;
 }
@@ -578,13 +589,37 @@ const App = {
     else adminDraftGames[i][field] = value;
     render();
   },
-  fillSlotFromSchedule(scheduleId){
-    const row = (STATE.scheduleCache||[]).find(r => r.id === scheduleId);
-    if (!row) return;
-    const sel = document.getElementById('sched-target-' + scheduleId);
-    const idx = parseInt(sel.value, 10);
-    const slot = adminDraftGames[idx];
-    slot.league = row.league; slot.away = row.away; slot.home = row.home; slot.kickoff = row.kickoff;
+  toggleScheduleSelect(id){
+    scheduleSelected[id] = !scheduleSelected[id];
+    if (!scheduleSelected[id] && scheduleTiebreakerId === id) scheduleTiebreakerId = null;
+    render();
+  },
+  setScheduleTiebreaker(id){
+    scheduleTiebreakerId = (scheduleTiebreakerId === id) ? null : id;
+    if (scheduleTiebreakerId) scheduleSelected[id] = true;
+    render();
+  },
+  populateFromSelection(){
+    const cache = STATE.scheduleCache || [];
+    const regularIds = Object.keys(scheduleSelected).filter(id => scheduleSelected[id] && id !== scheduleTiebreakerId);
+    let regularRows = regularIds.map(id => cache.find(r => r.id === id)).filter(Boolean);
+    regularRows.sort((a,b) => new Date(a.kickoff) - new Date(b.kickoff));
+    if (regularRows.length > 11){
+      if (!confirm('You selected ' + regularRows.length + ' games, but there are only 11 regular slots. Use the first 11 by kickoff time and drop the rest?')) return;
+      regularRows = regularRows.slice(0,11);
+    }
+    regularRows.forEach((row, i) => {
+      const slot = adminDraftGames[i];
+      slot.league = row.league; slot.away = row.away; slot.home = row.home; slot.kickoff = row.kickoff;
+    });
+    if (scheduleTiebreakerId){
+      const tbRow = cache.find(r => r.id === scheduleTiebreakerId);
+      if (tbRow){
+        const tbSlot = adminDraftGames[11];
+        tbSlot.league = tbRow.league; tbSlot.away = tbRow.away; tbSlot.home = tbRow.home; tbSlot.kickoff = tbRow.kickoff;
+      }
+    }
+    scheduleSelected = {}; scheduleTiebreakerId = null;
     render();
   },
   setResult(i, side){ adminDraftGames[i].winner = side; render(); },
