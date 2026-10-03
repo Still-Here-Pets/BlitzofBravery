@@ -74,19 +74,21 @@ module.exports = async (req, res) => {
         continue;
       }
 
-      // Completed games: auto-grade any matching real game in the pool
-      const winner = g.awayScore > g.homeScore ? 'away' : (g.homeScore > g.awayScore ? 'home' : null);
+      // Live or completed: push current scores into any matching real game in the pool.
+      // Winner is only set once the game is actually final, so grading stays accurate,
+      // but the score numbers update live for the Picks screen throughout the game.
+      const winner = g.completed ? (g.awayScore > g.homeScore ? 'away' : (g.homeScore > g.awayScore ? 'home' : null)) : null;
       const { data: matches, error } = await sb.from('games')
-        .select('id')
-        .eq('away', g.away).eq('home', g.home)
-        .is('winner', null);
+        .select('id, winner')
+        .eq('away', g.away).eq('home', g.home);
       if (error) { results.errors.push(error.message); continue; }
       if (matches && matches.length) {
         for (const m of matches) {
-          await sb.from('games').update({
-            winner, away_score: g.awayScore, home_score: g.homeScore
-          }).eq('id', m.id);
-          results.graded++;
+          if (m.winner) continue; // already graded, don't touch
+          const update = { away_score: g.awayScore, home_score: g.homeScore };
+          if (winner) update.winner = winner;
+          await sb.from('games').update(update).eq('id', m.id);
+          if (winner) results.graded++;
         }
       }
     }
