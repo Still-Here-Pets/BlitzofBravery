@@ -30,6 +30,7 @@ function parseEvents(json, league) {
       homeScore: home.score != null ? parseInt(home.score, 10) : null,
       kickoff: comp.date,
       completed: !!(comp.status && comp.status.type && comp.status.type.completed),
+      started: !!(comp.status && comp.status.type && comp.status.type.state !== 'pre'),
       spread: odds ? (odds.details || null) : null,
       overUnder: odds ? (odds.overUnder || null) : null,
       records: (awayRecord || homeRecord) ? (away.team.displayName + ' ' + (awayRecord||'?') + ', ' + home.team.displayName + ' ' + (homeRecord||'?')) : null
@@ -71,7 +72,7 @@ module.exports = async (req, res) => {
           spread: spreadText, records: g.records, week_label: 'Live sync'
         });
         if (g.league === 'NFL') results.nfl++; else results.cfb++;
-        continue;
+        // fall through — still push current score into the real games table below
       }
 
       // Live or completed: push current scores into any matching real game in the pool.
@@ -82,7 +83,7 @@ module.exports = async (req, res) => {
         .select('id, winner')
         .eq('away', g.away).eq('home', g.home);
       if (error) { results.errors.push(error.message); continue; }
-      if (matches && matches.length) {
+      if (matches && matches.length && g.started) {
         for (const m of matches) {
           if (m.winner) continue; // already graded, don't touch
           const update = { away_score: g.awayScore, home_score: g.homeScore };
