@@ -155,6 +155,8 @@ let adminDraftGames = null;
 let scheduleFilter = '';
 let scheduleLeagueFilter = '';
 let scheduleSelected = {};
+const TOTAL_WEEKS = 15;
+let picksViewWeek = null;
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
 
@@ -285,24 +287,34 @@ function renderLogin(){
   '</div>';
 }
 
+function weekOptions(selected){
+  let html = '';
+  for (let i=1;i<=TOTAL_WEEKS;i++) html += '<option value="'+i+'" ' + (i===selected?'selected':'') + '>Week ' + i + '</option>';
+  return html;
+}
+function scoreLine(g){
+  if (g.awayScore == null && g.homeScore == null) return '';
+  const tag = g.winner ? '<span class="badge good">FINAL</span>' : '<span class="badge gold">LIVE</span>';
+  return ' <span class="num" style="font-size:16px;">' + (g.awayScore??0) + '–' + (g.homeScore??0) + '</span> ' + tag;
+}
 function renderPicks(){
-  const wk = STATE.meta.currentWeek;
+  const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
   const w = getWeek(wk);
-  if (!w || !w.games || !w.games.length) return '<div class="empty">No games have been posted for Week ' + esc(wk) + ' yet. Check back soon.</div>';
+  let html = '<label>Viewing</label><select onchange="App.setPicksWeek(this.value)">' + weekOptions(wk) + '</select>';
+  if (!w || !w.games || !w.games.length) return html + '<div class="empty" style="margin-top:14px;">No games have been posted for Week ' + esc(wk) + ' yet. Check back soon.</div>';
   const locked = isLocked(w);
   const existing = STATE.picks[pickDocId(wk, session.playerId)];
   if (!draft || draft.week !== wk) draft = existing ? JSON.parse(JSON.stringify(existing)) : { week: wk, gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
   const regular = w.games.filter(g => !g.isTiebreaker);
   const tb = w.games.find(g => g.isTiebreaker);
-  let html = '';
-  if (locked) html += '<div class="banner">Picks for Week ' + esc(wk) + ' are locked.' + (existing ? ' Showing what you submitted.' : ' You did not submit picks for this week.') + '</div>';
-  else html += '<p class="muted">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Skip exactly one game. Then set your Monday-night tiebreaker.</p>';
+  if (locked) html += '<div class="banner" style="margin-top:14px;">Picks for Week ' + esc(wk) + ' are locked.' + (existing ? ' Showing what you submitted.' : ' You did not submit picks for this week.') + '</div>';
+  else html += '<p class="muted" style="margin-top:14px;">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Skip exactly one game. Then set your Monday-night tiebreaker.</p>';
   const usedValues = new Set(Object.values(draft.gamePicks).map(p => p.value).filter(v => v != null));
   regular.forEach(g => {
     const isSkipped = draft.omitGameId === g.id;
     const pick = draft.gamePicks[g.id] || {};
     html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
-      '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>';
+      '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + scoreLine(g) + '</span></div>';
     if (!locked){
       html += '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped) + teamBtn(g,'home', pick.winner==='home', isSkipped) + '</div>';
       html += '<div class="game-controls">' +
@@ -312,20 +324,28 @@ function renderPicks(){
         '</select>' +
         '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.toggleSkip(\'' + g.id + '\')">' + (isSkipped?'Skipped':'Skip') + '</button></div>';
     } else {
-      const label = pick.winner ? (pick.winner==='away'?g.away:g.home) : (isSkipped ? 'Skipped' : '—');
-      html += '<div>' + esc(label) + (pick.value ? ' <span class="badge gold">' + pick.value + '</span>' : '') + (g.winner ? gradeBadge(g.winner, pick.winner) : '') + '</div>';
+      html += '<div class="pick-buttons">' +
+        '<div class="pick-btn ' + (pick.winner==='away'?'selected':'') + '" style="cursor:default;">' + esc(g.away) + '</div>' +
+        '<div class="pick-btn ' + (pick.winner==='home'?'selected':'') + '" style="cursor:default;">' + esc(g.home) + '</div>' +
+      '</div>';
+      const label = isSkipped ? 'Skipped' : (pick.winner ? 'Your pick: ' + (pick.winner==='away'?g.away:g.home) : 'No pick');
+      html += '<div>' + esc(label) + (pick.value ? ' <span class="badge gold">' + pick.value + ' pts</span>' : '') + (g.winner ? gradeBadge(g.winner, pick.winner) : '') + '</div>';
     }
     html += '</div>';
   });
   if (tb){
     const tbp = draft.tiebreaker || {};
-    html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + '</span></div>';
+    html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + scoreLine(tb) + '</span></div>';
     if (!locked){
       html += '<div class="pick-buttons">' + teamBtn(tb,'away', tbp.winner==='away', false, true) + teamBtn(tb,'home', tbp.winner==='home', false, true) + '</div>' +
         '<label style="margin-top:8px;">Predicted combined final score (both teams)</label>' +
         '<input type="number" min="0" inputmode="numeric" value="' + esc(tbp.total==null?'':tbp.total) + '" oninput="App.setTiebreakTotal(this.value)">';
     } else {
-      html += '<div>Pick: ' + esc(tbp.winner ? (tbp.winner==='away'?tb.away:tb.home) : '—') + ' &middot; Predicted total: ' + esc(tbp.total==null?'—':tbp.total) +
+      html += '<div class="pick-buttons">' +
+        '<div class="pick-btn ' + (tbp.winner==='away'?'selected':'') + '" style="cursor:default;">' + esc(tb.away) + '</div>' +
+        '<div class="pick-btn ' + (tbp.winner==='home'?'selected':'') + '" style="cursor:default;">' + esc(tb.home) + '</div>' +
+      '</div>';
+      html += '<div>Predicted total: ' + esc(tbp.total==null?'—':tbp.total) +
         (tb.awayScore!=null && tb.homeScore!=null ? ' &middot; Actual total: ' + (tb.awayScore+tb.homeScore) : '') + '</div>';
     }
     html += '</div>';
@@ -488,7 +508,11 @@ const App = {
     (async () => {
       try {
         if (v === 'standings') await loadAllWeeksAndPicks();
-        else if (v === 'picks') await loadWeekGames(STATE.meta.currentWeek);
+        else if (v === 'picks') {
+          const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
+          await loadWeekGames(wk);
+          if (session.playerId) await loadOwnPick(wk, session.playerId);
+        }
         else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); }
         render();
       } catch(e){ showError(e); }
@@ -498,6 +522,15 @@ const App = {
   setAuthMode(m){ authMode = m; render(); },
   setScheduleFilter(v){ scheduleFilter = v; render(); },
   setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
+  async setPicksWeek(v){
+    const n = parseInt(v, 10);
+    picksViewWeek = n;
+    try {
+      await loadWeekGames(n);
+      if (session.playerId) await loadOwnPick(n, session.playerId);
+      render();
+    } catch(e){ showError(e); }
+  },
 
   async signup(){
     const first = (document.getElementById('au-first').value||'').trim();
@@ -547,7 +580,7 @@ const App = {
   setTiebreakTotal(val){ draft.tiebreaker = draft.tiebreaker || {}; draft.tiebreaker.total = val === '' ? null : parseInt(val,10); },
 
   async submitPicks(){
-    const wk = STATE.meta.currentWeek; const w = getWeek(wk);
+    const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek; const w = getWeek(wk);
     const regular = w.games.filter(g => !g.isTiebreaker); const tb = w.games.find(g => g.isTiebreaker);
     if (!draft.omitGameId){ alert('Pick one game to skip (you play 10 of the 11).'); return; }
     const toScore = regular.filter(g => g.id !== draft.omitGameId);
