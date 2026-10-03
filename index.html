@@ -133,30 +133,64 @@
   .sched-row select { width: auto; }
   details.sched-browser summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
 
-  .scorecard { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 14px; background: var(--bg-elevated); box-shadow: 0 2px 6px var(--shadow); }
-  .scorecard-head {
-    display: flex; justify-content: space-between; align-items: center; padding: 8px 14px;
-    background: linear-gradient(90deg, color-mix(in srgb, var(--leather) 25%, var(--bg-elevated)), transparent);
-    border-bottom: 1px solid var(--border);
-    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  .scorecard {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 18px;
+    background:
+      radial-gradient(circle at 50% -20%, rgba(255,255,255,0.08), transparent 55%),
+      linear-gradient(180deg, #16211A 0%, #0A100B 100%);
+    border: 3px solid var(--gold);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.5), inset 0 0 22px rgba(0,0,0,0.5);
   }
-  .status-pill { padding: 3px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
-  .status-pill.live { background: var(--gold); color: #201800; }
-  .status-pill.final { background: var(--good); color: #06130c; }
-  .status-pill.scheduled { background: var(--border); color: var(--muted); }
+  .scorecard-bulbs { display: flex; justify-content: space-evenly; padding: 7px 14px 0; }
+  .scorecard-bulbs span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #FFF6D8, var(--gold) 70%);
+    box-shadow: 0 0 5px 1px rgba(255, 214, 10, 0.85);
+  }
+  .scorecard-head {
+    display: flex; justify-content: space-between; align-items: center; padding: 6px 14px 4px;
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.5);
+  }
+  .status-pill {
+    font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.06em;
+    padding: 2px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.4);
+  }
+  .status-pill.live { color: #FFD60A; text-shadow: 0 0 6px rgba(255,214,10,0.9), 0 0 16px rgba(255,214,10,0.55); }
+  .status-pill.final { color: #4CE08A; text-shadow: 0 0 6px rgba(76,224,138,0.9), 0 0 16px rgba(76,224,138,0.5); }
+  .status-pill.scheduled { color: rgba(255,255,255,0.65); text-shadow: none; }
   .matchup { display: flex; }
-  .team-box { flex: 1; padding: 16px 8px 14px; text-align: center; position: relative; border-right: 1px solid var(--border); transition: background 0.2s; }
-  .team-box:last-child { border-right: none; }
-  .team-box.picked { box-shadow: inset 0 0 0 3px var(--gold); }
-  .team-box.winner { background: color-mix(in srgb, var(--good) 16%, var(--bg-elevated)); }
-  .team-box.loser { opacity: 0.6; }
-  .team-name { font-weight: 700; font-size: 13px; margin-bottom: 2px; line-height: 1.25; min-height: 2.4em; display: flex; align-items: center; justify-content: center; }
-  .team-score { font-family: "Bebas Neue", sans-serif; font-size: 46px; line-height: 1; color: var(--ink); letter-spacing: 0.02em; }
-  .team-box.winner .team-score { color: var(--good); }
-  .team-tags { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
-  .win-tag { font-size: 10px; font-weight: 800; color: var(--good); text-transform: uppercase; letter-spacing: 0.04em; }
-  .pick-tag { font-size: 10px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; }
-  .scorecard-foot { padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .team-box { flex: 1; padding: 10px 8px 18px; text-align: center; position: relative; }
+  .team-box + .team-box { border-left: 1px solid rgba(255,255,255,0.1); }
+  .team-box.picked { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 16px rgba(255,214,10,0.3); border-radius: 8px; }
+  .team-name {
+    color: #F4F4F2; font-weight: 800; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+    margin-bottom: 8px; min-height: 2.3em; display: flex; align-items: center; justify-content: center;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+  .team-score {
+    font-family: "Bebas Neue", sans-serif; font-size: 62px; line-height: 1; letter-spacing: 0.02em;
+    color: #FFD60A;
+    text-shadow: 0 0 6px rgba(255,214,10,0.85), 0 0 18px rgba(255,214,10,0.55), 0 0 38px rgba(255,214,10,0.22);
+  }
+  .team-box.winner .team-score {
+    color: #4CE08A;
+    text-shadow: 0 0 6px rgba(76,224,138,0.9), 0 0 18px rgba(76,224,138,0.6), 0 0 38px rgba(76,224,138,0.28);
+  }
+  .team-box.loser .team-score { opacity: 0.4; filter: saturate(0.5); text-shadow: none; }
+  .team-tags { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+  .win-tag { font-size: 10px; font-weight: 800; color: #4CE08A; text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(76,224,138,0.6); }
+  .pick-tag { font-size: 10px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(255,214,10,0.5); }
+  .scorecard-foot {
+    padding: 8px 14px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3);
+    font-size: 12px; color: rgba(255,255,255,0.7); display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .scorecard-foot .badge.gold { background: var(--gold); color: #201800; }
+  .scorecard-foot .badge.good { background: #4CE08A; color: #06130c; }
 </style>
 </head>
 <body>
@@ -338,7 +372,8 @@ function renderScorecard(g, pickWinner, isSkipped, footHtml){
       (tags ? '<div class="team-tags">' + tags + '</div>' : '') +
     '</div>';
   }
-  return '<div class="scorecard">' +
+  const bulbs = '<div class="scorecard-bulbs">' + '<span></span>'.repeat(9) + '</div>';
+  return '<div class="scorecard">' + bulbs +
     '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span><span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
     '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
     (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
