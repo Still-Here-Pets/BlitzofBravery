@@ -401,20 +401,24 @@ function renderScheduleBrowser(){
       '<button class="btn ' + (!scheduleLeagueFilter?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'\')">All</button>' +
     '</div>' +
     '<input placeholder="Filter by team…" style="margin:10px 0;" oninput="App.setScheduleFilter(this.value)" value="' + esc(scheduleFilter) + '">';
+  const mondayDate = windowDays ? windowDays[2] : null;
+  const mondayCount = list.filter(r => gameDayET(r.kickoff) === mondayDate).length;
+  if (mondayCount > 1) html += '<div class="banner">Multiple Monday games this week — select one below and tap "Set TB" to choose your tiebreaker.</div>';
   if (!rows.length) html += '<p class="muted">No cached games match, or the cache is empty — ask in chat to refresh it.</p>';
   rows.forEach(r => {
     const isSel = !!scheduleSelected[r.id];
     const isTb = scheduleTiebreakerId === r.id;
-    html += '<div class="sched-row" style="align-items:flex-start;">' +
-      '<label style="display:flex;gap:8px;align-items:flex-start;flex:1;">' +
-        '<input type="checkbox" style="width:auto;margin-top:3px;" ' + (isSel?'checked':'') + ' onchange="App.toggleScheduleSelect(\'' + r.id + '\')">' +
-        '<div><div>' + esc(r.league) + ': ' + esc(r.away) + ' @ ' + esc(r.home) + (r.records ? ' <span class="muted">(' + esc(r.records) + ')</span>' : '') + '</div>' +
-        '<div class="muted">' + kickoffLabel(r.kickoff) + (r.spread ? ' &middot; ' + esc(r.spread) : '') + '</div></div>' +
-      '</label>' +
-      '<button class="btn ' + (isTb?'btn-primary':'') + '" style="flex:0 0 auto;font-size:12px;" onclick="App.setScheduleTiebreaker(\'' + r.id + '\')">' + (isTb?'Tiebreaker ✓':'Set TB') + '</button>' +
-    '</div>';
+    const isMonday = gameDayET(r.kickoff) === mondayDate;
+    html += '<div class="sched-row" style="flex-direction:column;align-items:stretch;gap:6px;">' +
+      '<div><div>' + esc(r.league) + ': ' + esc(r.away) + ' @ ' + esc(r.home) + (r.records ? ' <span class="muted">(' + esc(r.records) + ')</span>' : '') + (isMonday?' <span class="badge gold">MNF</span>':'') + '</div>' +
+      '<div class="muted">' + kickoffLabel(r.kickoff) + (r.spread ? ' &middot; ' + esc(r.spread) : '') + '</div></div>' +
+      '<div class="row">' +
+        '<button class="btn ' + (isSel?'btn-primary':'') + '" onclick="App.toggleScheduleSelect(\'' + r.id + '\')">' + (isSel?'Selected ✓':'Select Game') + '</button>' +
+        (mondayCount > 1 ? '<button class="btn ' + (isTb?'btn-primary':'') + '" onclick="App.setScheduleTiebreaker(\'' + r.id + '\')">' + (isTb?'Tiebreaker ✓':'Set TB') + '</button>' : '') +
+      '</div></div>';
   });
-  html += '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="App.populateFromSelection()">Populate Selected (' + selectedCount + (scheduleTiebreakerId?' + TB':'') + ')</button>';
+  const autoTb = !scheduleTiebreakerId && mondayCount === 1;
+  html += '<button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="App.populateFromSelection()">Populate Selected (' + selectedCount + (scheduleTiebreakerId||autoTb?' + TB':'') + ')</button>';
   html += '</details>';
   return html;
 }
@@ -601,7 +605,21 @@ const App = {
   },
   populateFromSelection(){
     const cache = STATE.scheduleCache || [];
-    const regularIds = Object.keys(scheduleSelected).filter(id => scheduleSelected[id] && id !== scheduleTiebreakerId);
+    const wk = STATE.meta.currentWeek;
+    const w = getWeek(wk);
+    const startDate = w ? w.startDate : null;
+    const windowDays = startDate ? [startDate, addDays(startDate,1), addDays(startDate,2)] : null;
+    const mondayDate = windowDays ? windowDays[2] : null;
+    const mondayGames = cache.filter(r => gameDayET(r.kickoff) === mondayDate);
+
+    let tbId = scheduleTiebreakerId;
+    if (!tbId && mondayGames.length === 1) tbId = mondayGames[0].id; // auto: the lone MNF game is always the tiebreaker
+    if (!tbId && mondayGames.length > 1){
+      alert('There are multiple Monday games this week — use "Set TB" on the one you want as the tiebreaker first.');
+      return;
+    }
+
+    const regularIds = Object.keys(scheduleSelected).filter(id => scheduleSelected[id] && id !== tbId);
     let regularRows = regularIds.map(id => cache.find(r => r.id === id)).filter(Boolean);
     regularRows.sort((a,b) => new Date(a.kickoff) - new Date(b.kickoff));
     if (regularRows.length > 11){
@@ -612,8 +630,8 @@ const App = {
       const slot = adminDraftGames[i];
       slot.league = row.league; slot.away = row.away; slot.home = row.home; slot.kickoff = row.kickoff;
     });
-    if (scheduleTiebreakerId){
-      const tbRow = cache.find(r => r.id === scheduleTiebreakerId);
+    if (tbId){
+      const tbRow = cache.find(r => r.id === tbId);
       if (tbRow){
         const tbSlot = adminDraftGames[11];
         tbSlot.league = tbRow.league; tbSlot.away = tbRow.away; tbSlot.home = tbRow.home; tbSlot.kickoff = tbRow.kickoff;
