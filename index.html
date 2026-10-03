@@ -90,7 +90,6 @@
 const SUPABASE_URL = "https://krzvgztucpihntrmeoza.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyenZnenR1Y3BpaG50cm1lb3phIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEwMzczNDAsImV4cCI6MjEwNjYxMzM0MH0.FTC-_wFkJnXur9nFC3-VSnDguUm_xDyYo2_k4ehMSB8";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const EMAIL_DOMAIN = "@confidencepool.local";
 
 let session = {};      // { playerId, displayName, isAdmin }
 let view = 'login';
@@ -211,7 +210,9 @@ function renderLogin(){
       '<button class="btn ' + (authMode==='signup'?'btn-primary':'') + '" onclick="App.setAuthMode(\'signup\')">Create Account</button>' +
     '</div>' +
     '<div class="card">' +
-      '<label>Username</label><input id="au-user" placeholder="e.g. jordan" autocapitalize="off" autocorrect="off">' +
+      (authMode==='signup' ? '<label>First name</label><input id="au-first" placeholder="Jordan">' +
+        '<label>Last name</label><input id="au-last" placeholder="Smith">' : '') +
+      '<label>Email</label><input id="au-email" type="email" placeholder="you@example.com" autocapitalize="off" autocorrect="off">' +
       '<label>Password</label><input id="au-pass" type="password" placeholder="At least 6 characters">' +
       (authMode==='signup' ? '<label>Confirm password</label><input id="au-pass2" type="password">' : '') +
       '<button class="btn btn-primary btn-block" id="au-btn" style="margin-top:16px;" onclick="App.' + (authMode==='signup'?'signup':'login') + '()">' + (authMode==='signup'?'Create Account':'Log In') + '</button>' +
@@ -394,35 +395,37 @@ const App = {
   setScheduleFilter(v){ scheduleFilter = v; render(); },
 
   async signup(){
-    const user = (document.getElementById('au-user').value||'').trim();
+    const first = (document.getElementById('au-first').value||'').trim();
+    const last = (document.getElementById('au-last').value||'').trim();
+    const email = (document.getElementById('au-email').value||'').trim();
     const pass = document.getElementById('au-pass').value;
     const pass2 = document.getElementById('au-pass2').value;
     const btn = document.getElementById('au-btn');
-    if (!user || !pass){ alert('Enter a username and password.'); return; }
+    if (!first || !last){ alert('Enter your first and last name.'); return; }
+    if (!email || !email.includes('@')){ alert('Enter a valid email address.'); return; }
+    if (!pass){ alert('Enter a password.'); return; }
     if (pass.length < 6){ alert('Password must be at least 6 characters.'); return; }
     if (pass !== pass2){ alert('Passwords don\'t match.'); return; }
-    const pid = normId(user);
-    if (!pid){ alert('Please use a username with at least one letter or number.'); return; }
+    const displayName = first + ' ' + last;
     btn.disabled = true; btn.textContent = 'Creating…';
     try {
-      const { data, error } = await sb.auth.signUp({ email: pid + EMAIL_DOMAIN, password: pass });
+      const { data, error } = await sb.auth.signUp({ email, password: pass });
       if (error) throw error;
-      if (!data.session){ alert('Account created, but sign-in didn\'t complete automatically — make sure "Confirm email" is turned OFF in Supabase, then log in.'); authMode='login'; render(); return; }
-      const { error: profErr } = await sb.from('profiles').insert({ id: data.user.id, display_name: user });
+      if (!data.session){ alert('Check your email to confirm your account, then log in. (If you\'d rather skip email confirmation, turn that off in Supabase\u2019s Auth settings.)'); authMode='login'; render(); return; }
+      const { error: profErr } = await sb.from('profiles').insert({ id: data.user.id, display_name: displayName });
       if (profErr) throw profErr;
-      session = { playerId: data.user.id, displayName: user, isAdmin: false };
+      session = { playerId: data.user.id, displayName, isAdmin: false };
       await boot();
     } catch(e){ showError(e); btn.disabled=false; btn.textContent='Create Account'; }
   },
   async login(){
-    const user = (document.getElementById('au-user').value||'').trim();
+    const email = (document.getElementById('au-email').value||'').trim();
     const pass = document.getElementById('au-pass').value;
     const btn = document.getElementById('au-btn');
-    if (!user || !pass){ alert('Enter your username and password.'); return; }
-    const pid = normId(user);
+    if (!email || !pass){ alert('Enter your email and password.'); return; }
     btn.disabled = true; btn.textContent = 'Logging in…';
     try {
-      const { data, error } = await sb.auth.signInWithPassword({ email: pid + EMAIL_DOMAIN, password: pass });
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
       if (error) throw error;
       const { data: profile, error: profErr } = await sb.from('profiles').select('*').eq('id', data.user.id).single();
       if (profErr) throw profErr;
