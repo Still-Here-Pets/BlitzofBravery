@@ -1,0 +1,19 @@
+name: Sync Schedule
+
+on:
+  schedule:
+    # Every 15 minutes on Saturday (6), Sunday (0), and Monday (1) — game days
+    - cron: '*/15 * * * 6,0,1'
+    # Every 6 hours the rest of the week, to keep records/spreads reasonably fresh
+    - cron: '0 */6 * * 2,3,4,5'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call sync-schedule endpoint
+        run: |
+          curl -sS -X GET "${{ secrets.SYNC_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP %{http_code}\n"
