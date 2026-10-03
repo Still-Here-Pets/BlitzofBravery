@@ -213,7 +213,7 @@ async function loadWeekGames(wk){
     sb.from('games').select('*').eq('week_number', wk).order('kickoff', { ascending: true })
   ]);
   if (error) throw error;
-  STATE.weeks[weekKey(wk)] = { locked: wkRow ? wkRow.locked : false, games: (gameRows||[]).map(rowToGame) };
+  STATE.weeks[weekKey(wk)] = { locked: wkRow ? wkRow.locked : false, startDate: wkRow ? wkRow.start_date : null, games: (gameRows||[]).map(rowToGame) };
 }
 async function loadAllWeeksAndPicks(){
   const [{ data: weekRows }, { data: gameRows }, { data: pickRows }, { data: profileRows }] = await Promise.all([
@@ -366,14 +366,31 @@ function renderStandings(){
   return html;
 }
 
+function gameDayET(iso){
+  if (!iso) return '';
+  const d = new Date(new Date(iso).getTime() - 4*3600*1000); // approximate ET offset so MNF (UTC after midnight) still lands on the right day
+  return d.toISOString().slice(0,10);
+}
+function addDays(dateStr, n){
+  const d = new Date(dateStr + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0,10);
+}
 function blankSlot(isTb){ return { id: newId(), league:'NFL', away:'', home:'', kickoff:'', isTiebreaker: !!isTb, winner:null, awayScore:null, homeScore:null }; }
 
 function renderScheduleBrowser(){
-  const list = STATE.scheduleCache || [];
+  const wk = STATE.meta.currentWeek;
+  const w = getWeek(wk);
+  const startDate = w ? w.startDate : null;
+  const windowDays = startDate ? [startDate, addDays(startDate,1), addDays(startDate,2)] : null;
+  const list = (STATE.scheduleCache || []).filter(r => !windowDays || windowDays.includes(gameDayET(r.kickoff)));
   const filt = scheduleFilter.trim().toLowerCase();
   const rows = list.filter(r => (!filt || (r.away+' '+r.home+' '+r.league).toLowerCase().includes(filt)) && (!scheduleLeagueFilter || r.league === scheduleLeagueFilter));
   const slotOptions = adminDraftGames.map((g,i) => '<option value="'+i+'">' + (g.isTiebreaker?'Tiebreaker':'Game '+(i+1)) + '</option>').join('');
-  let html = '<details class="sched-browser"><summary>Browse cached schedule &amp; spreads (' + list.length + ')</summary>' +
+  if (!startDate){
+    return '<div class="banner">Set this week\'s start date above to see its Saturday/Sunday/Monday games here.</div>';
+  }
+  let html = '<details class="sched-browser" open><summary>Browse cached schedule &amp; spreads (' + list.length + ' this week)</summary>' +
     '<div class="row" style="margin-top:10px;">' +
       '<button class="btn ' + (scheduleLeagueFilter==='NFL'?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'NFL\')">NFL</button>' +
       '<button class="btn ' + (scheduleLeagueFilter==='College'?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'College\')">FBS</button>' +
@@ -405,7 +422,11 @@ function renderAdmin(){
   }
   let html = '<div class="card"><label>Current week number</label>' +
     '<div class="row"><input id="ad-week" type="number" min="1" value="' + esc(pendingWeekInput != null ? pendingWeekInput : wk) + '" oninput="App.setPendingWeek(this.value)">' +
-    '<button class="btn" onclick="App.setCurrentWeek()">Switch / Create</button></div></div>';
+    '<button class="btn" onclick="App.setCurrentWeek()">Switch / Create</button></div>' +
+    '<label>Week start date (that Saturday)</label>' +
+    '<div class="row"><input id="ad-startdate" type="date" value="' + esc(w.startDate||'') + '">' +
+    '<button class="btn" onclick="App.setWeekStartDate()">Save Date</button></div>' +
+    '<p class="muted" style="margin-top:6px;">Sets which Sat/Sun/Mon games show in the schedule browser below.</p></div>';
   html += '<div class="card"><h3 style="margin-top:0;">Week ' + esc(wk) + ' Games</h3>' +
     '<p class="muted">Fill in all 11 games plus the Monday-night tiebreaker, then tap Save Week at the bottom. Leave a slot blank to skip it.</p>' +
     renderScheduleBrowser();
@@ -533,6 +554,15 @@ const App = {
   },
 
   setPendingWeek(v){ pendingWeekInput = v; },
+  async setWeekStartDate(){
+    const wk = STATE.meta.currentWeek;
+    const val = document.getElementById('ad-startdate').value;
+    if (!val){ alert('Pick a date first.'); return; }
+    try {
+      await sb.from('weeks').update({ start_date: val }).eq('week_number', wk);
+      await loadWeekGames(wk); render();
+    } catch(e){ showError(e); }
+  },
   async setCurrentWeek(){
     const n = parseInt(pendingWeekInput != null ? pendingWeekInput : document.getElementById('ad-week').value, 10);
     if (!n || n < 1){ alert('Enter a valid week number.'); return; }
