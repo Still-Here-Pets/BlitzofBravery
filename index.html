@@ -132,6 +132,31 @@
   .sched-row { border-bottom: 1px solid var(--border); padding: 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
   .sched-row select { width: auto; }
   details.sched-browser summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+
+  .scorecard { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 14px; background: var(--bg-elevated); box-shadow: 0 2px 6px var(--shadow); }
+  .scorecard-head {
+    display: flex; justify-content: space-between; align-items: center; padding: 8px 14px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--leather) 25%, var(--bg-elevated)), transparent);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  }
+  .status-pill { padding: 3px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
+  .status-pill.live { background: var(--gold); color: #201800; }
+  .status-pill.final { background: var(--good); color: #06130c; }
+  .status-pill.scheduled { background: var(--border); color: var(--muted); }
+  .matchup { display: flex; }
+  .team-box { flex: 1; padding: 16px 8px 14px; text-align: center; position: relative; border-right: 1px solid var(--border); transition: background 0.2s; }
+  .team-box:last-child { border-right: none; }
+  .team-box.picked { box-shadow: inset 0 0 0 3px var(--gold); }
+  .team-box.winner { background: color-mix(in srgb, var(--good) 16%, var(--bg-elevated)); }
+  .team-box.loser { opacity: 0.6; }
+  .team-name { font-weight: 700; font-size: 13px; margin-bottom: 2px; line-height: 1.25; min-height: 2.4em; display: flex; align-items: center; justify-content: center; }
+  .team-score { font-family: "Bebas Neue", sans-serif; font-size: 46px; line-height: 1; color: var(--ink); letter-spacing: 0.02em; }
+  .team-box.winner .team-score { color: var(--good); }
+  .team-tags { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+  .win-tag { font-size: 10px; font-weight: 800; color: var(--good); text-transform: uppercase; letter-spacing: 0.04em; }
+  .pick-tag { font-size: 10px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; }
+  .scorecard-foot { padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 </style>
 </head>
 <body>
@@ -297,6 +322,28 @@ function scoreLine(g){
   const tag = g.winner ? '<span class="badge good">FINAL</span>' : '<span class="badge gold">LIVE</span>';
   return ' <span class="num" style="font-size:16px;">' + (g.awayScore??0) + '–' + (g.homeScore??0) + '</span> ' + tag;
 }
+function renderScorecard(g, pickWinner, isSkipped, footHtml){
+  const hasScore = g.awayScore != null || g.homeScore != null;
+  const statusClass = g.winner ? 'final' : (hasScore ? 'live' : 'scheduled');
+  const statusText = g.winner ? 'FINAL' : (hasScore ? 'LIVE' : kickoffLabel(g.kickoff));
+  function box(side, name){
+    const isWinner = g.winner === side;
+    const isLoser = g.winner && g.winner !== side;
+    const isPicked = pickWinner === side;
+    const tags = (isWinner ? '<div class="win-tag">&#9733; Winner</div>' : '') +
+      (isPicked ? '<div class="pick-tag">Your Pick</div>' : '');
+    return '<div class="team-box ' + (isPicked?'picked ':'') + (isWinner?'winner ':'') + (isLoser?'loser ':'') + '">' +
+      '<div class="team-name">' + esc(name) + '</div>' +
+      '<div class="team-score">' + (hasScore ? (side==='away' ? (g.awayScore??0) : (g.homeScore??0)) : '–') + '</div>' +
+      (tags ? '<div class="team-tags">' + tags + '</div>' : '') +
+    '</div>';
+  }
+  return '<div class="scorecard">' +
+    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span><span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
+    '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
+    (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
+  '</div>';
+}
 function renderPicks(){
   const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
   const w = getWeek(wk);
@@ -313,42 +360,38 @@ function renderPicks(){
   regular.forEach(g => {
     const isSkipped = draft.omitGameId === g.id;
     const pick = draft.gamePicks[g.id] || {};
-    html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
-      '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + scoreLine(g) + '</span></div>';
     if (!locked){
-      html += '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped) + teamBtn(g,'home', pick.winner==='home', isSkipped) + '</div>';
-      html += '<div class="game-controls">' +
-        '<select ' + (isSkipped||!pick.winner?'disabled':'') + ' onchange="App.setValue(\'' + g.id + '\', this.value)">' +
-          '<option value="">Value…</option>' +
-          [1,2,3,4,5,6,7,8,9,10].filter(v => !usedValues.has(v) || v===pick.value).map(v => '<option value="'+v+'" ' + (pick.value===v?'selected':'') + '>' + v + '</option>').join('') +
-        '</select>' +
-        '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.toggleSkip(\'' + g.id + '\')">' + (isSkipped?'Skipped':'Skip') + '</button></div>';
-    } else {
-      html += '<div class="pick-buttons">' +
-        '<div class="pick-btn ' + (pick.winner==='away'?'selected':'') + '" style="cursor:default;">' + esc(g.away) + '</div>' +
-        '<div class="pick-btn ' + (pick.winner==='home'?'selected':'') + '" style="cursor:default;">' + esc(g.home) + '</div>' +
+      html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
+        '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+        '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped) + teamBtn(g,'home', pick.winner==='home', isSkipped) + '</div>' +
+        '<div class="game-controls">' +
+          '<select ' + (isSkipped||!pick.winner?'disabled':'') + ' onchange="App.setValue(\'' + g.id + '\', this.value)">' +
+            '<option value="">Value…</option>' +
+            [1,2,3,4,5,6,7,8,9,10].filter(v => !usedValues.has(v) || v===pick.value).map(v => '<option value="'+v+'" ' + (pick.value===v?'selected':'') + '>' + v + '</option>').join('') +
+          '</select>' +
+          '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.toggleSkip(\'' + g.id + '\')">' + (isSkipped?'Skipped':'Skip') + '</button></div>' +
       '</div>';
-      const label = isSkipped ? 'Skipped' : (pick.winner ? 'Your pick: ' + (pick.winner==='away'?g.away:g.home) : 'No pick');
-      html += '<div>' + esc(label) + (pick.value ? ' <span class="badge gold">' + pick.value + ' pts</span>' : '') + (g.winner ? gradeBadge(g.winner, pick.winner) : '') + '</div>';
+    } else {
+      const foot = isSkipped ? '<span>Skipped this week</span>' :
+        (pick.winner ? '<span>' + (pick.value?('<span class="badge gold">' + pick.value + ' pts</span>'):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
+      html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
     }
-    html += '</div>';
   });
   if (tb){
     const tbp = draft.tiebreaker || {};
-    html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + scoreLine(tb) + '</span></div>';
     if (!locked){
-      html += '<div class="pick-buttons">' + teamBtn(tb,'away', tbp.winner==='away', false, true) + teamBtn(tb,'home', tbp.winner==='home', false, true) + '</div>' +
+      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + '</span></div>' +
+        '<div class="pick-buttons">' + teamBtn(tb,'away', tbp.winner==='away', false, true) + teamBtn(tb,'home', tbp.winner==='home', false, true) + '</div>' +
         '<label style="margin-top:8px;">Predicted combined final score (both teams)</label>' +
-        '<input type="number" min="0" inputmode="numeric" value="' + esc(tbp.total==null?'':tbp.total) + '" oninput="App.setTiebreakTotal(this.value)">';
-    } else {
-      html += '<div class="pick-buttons">' +
-        '<div class="pick-btn ' + (tbp.winner==='away'?'selected':'') + '" style="cursor:default;">' + esc(tb.away) + '</div>' +
-        '<div class="pick-btn ' + (tbp.winner==='home'?'selected':'') + '" style="cursor:default;">' + esc(tb.home) + '</div>' +
+        '<input type="number" min="0" inputmode="numeric" value="' + esc(tbp.total==null?'':tbp.total) + '" oninput="App.setTiebreakTotal(this.value)">' +
       '</div>';
-      html += '<div>Predicted total: ' + esc(tbp.total==null?'—':tbp.total) +
-        (tb.awayScore!=null && tb.homeScore!=null ? ' &middot; Actual total: ' + (tb.awayScore+tb.homeScore) : '') + '</div>';
+    } else {
+      const actualTotal = (tb.awayScore!=null && tb.homeScore!=null) ? (tb.awayScore+tb.homeScore) : null;
+      const foot = '<span>Predicted total: ' + esc(tbp.total==null?'—':tbp.total) + '</span>' +
+        (actualTotal!=null ? '<span>Actual total: <strong>' + actualTotal + '</strong></span>' : '<span>Tiebreaker pending</span>');
+      html += '<div style="margin-bottom:4px;"><span class="badge gold">MONDAY NIGHT TIEBREAKER</span></div>' +
+        renderScorecard(tb, tbp.winner, false, foot);
     }
-    html += '</div>';
   }
   if (!locked) html += '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.submitPicks()">' + (existing?'Update Picks':'Submit Picks') + '</button>';
   if (existing) html += '<p class="muted" style="margin-top:12px;">Week ' + esc(wk) + ' score so far: <strong>' + weeklyScore(wk, session.playerId) + '</strong> / 55</p>';
