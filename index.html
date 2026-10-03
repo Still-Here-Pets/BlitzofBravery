@@ -153,6 +153,7 @@ let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
 let adminDraftGames = null;
 let scheduleFilter = '';
+let scheduleLeagueFilter = '';
 let pendingWeekInput = null;
 
 const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
@@ -370,9 +371,14 @@ function blankSlot(isTb){ return { id: newId(), league:'NFL', away:'', home:'', 
 function renderScheduleBrowser(){
   const list = STATE.scheduleCache || [];
   const filt = scheduleFilter.trim().toLowerCase();
-  const rows = list.filter(r => !filt || (r.away+' '+r.home+' '+r.league).toLowerCase().includes(filt));
+  const rows = list.filter(r => (!filt || (r.away+' '+r.home+' '+r.league).toLowerCase().includes(filt)) && (!scheduleLeagueFilter || r.league === scheduleLeagueFilter));
   const slotOptions = adminDraftGames.map((g,i) => '<option value="'+i+'">' + (g.isTiebreaker?'Tiebreaker':'Game '+(i+1)) + '</option>').join('');
   let html = '<details class="sched-browser"><summary>Browse cached schedule &amp; spreads (' + list.length + ')</summary>' +
+    '<div class="row" style="margin-top:10px;">' +
+      '<button class="btn ' + (scheduleLeagueFilter==='NFL'?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'NFL\')">NFL</button>' +
+      '<button class="btn ' + (scheduleLeagueFilter==='College'?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'College\')">FBS</button>' +
+      '<button class="btn ' + (!scheduleLeagueFilter?'btn-primary':'') + '" onclick="App.setScheduleLeague(\'\')">All</button>' +
+    '</div>' +
     '<input placeholder="Filter by team…" style="margin:10px 0;" oninput="App.setScheduleFilter(this.value)" value="' + esc(scheduleFilter) + '">';
   if (!rows.length) html += '<p class="muted">No cached games match, or the cache is empty — ask in chat to refresh it.</p>';
   rows.forEach(r => {
@@ -455,6 +461,7 @@ const App = {
   },
   setAuthMode(m){ authMode = m; render(); },
   setScheduleFilter(v){ scheduleFilter = v; render(); },
+  setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
 
   async signup(){
     const first = (document.getElementById('au-first').value||'').trim();
