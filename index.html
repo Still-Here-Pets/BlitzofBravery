@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Confidence Pool</title>
+<title>The Blitz of Bravery</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -13,29 +13,37 @@
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    --bg: #10151A; --bg-elevated: #1A222A; --turf: #234D35; --turf-ink: #EAF3EC;
-    --gold: #E7B740; --ink: #F2F3F0; --muted: #92A0AC; --brick: #C1503A;
-    --good: #4C9A6A; --border: rgba(255,255,255,0.09); --shadow: rgba(0,0,0,0.35);
+    --bg: #0B2016; --bg-elevated: #15301F; --turf: #1D6B3C; --turf-ink: #FFFFFF;
+    --gold: #FFB612; --ink: #F3F6F2; --muted: #9DB3A4; --brick: #D22630;
+    --leather: #7B4B2A; --good: #3FA85A; --border: rgba(255,182,18,0.18); --shadow: rgba(0,0,0,0.4);
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
-      --bg: #F5F6F3; --bg-elevated: #FFFFFF; --turf: #1E4430; --turf-ink: #F5F9F6;
-      --gold: #B87A16; --ink: #182019; --muted: #5B6B62; --brick: #A83E2C;
-      --good: #2C7148; --border: rgba(0,0,0,0.09); --shadow: rgba(0,0,0,0.12);
+      --bg: #F0F2ED; --bg-elevated: #FFFFFF; --turf: #1C5C35; --turf-ink: #FFFFFF;
+      --gold: #C9890A; --ink: #16231A; --muted: #5B6E5F; --brick: #B5202C;
+      --leather: #8A5A32; --good: #28793F; --border: rgba(123,75,42,0.18); --shadow: rgba(0,0,0,0.12);
     }
   }
   :root[data-theme="light"] {
-    --bg: #F5F6F3; --bg-elevated: #FFFFFF; --turf: #1E4430; --turf-ink: #F5F9F6;
-    --gold: #B87A16; --ink: #182019; --muted: #5B6B62; --brick: #A83E2C;
-    --good: #2C7148; --border: rgba(0,0,0,0.09); --shadow: rgba(0,0,0,0.12);
+    --bg: #F0F2ED; --bg-elevated: #FFFFFF; --turf: #1C5C35; --turf-ink: #FFFFFF;
+    --gold: #C9890A; --ink: #16231A; --muted: #5B6E5F; --brick: #B5202C;
+    --leather: #8A5A32; --good: #28793F; --border: rgba(123,75,42,0.18); --shadow: rgba(0,0,0,0.12);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Work Sans", system-ui, -apple-system, sans-serif; line-height: 1.45; scroll-padding-top: env(safe-area-inset-top, 0px); }
   h1, h2, h3, .num { font-family: "Bebas Neue", "Arial Narrow", sans-serif; letter-spacing: 0.03em; font-weight: 400; }
   #app { max-width: 640px; margin: 0 auto; padding: 0 0 48px; min-height: 100%; }
-  .topbar { background: var(--turf); color: var(--turf-ink); padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 16px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .topbar .brand { font-size: 22px; } .topbar .week { font-size: 28px; color: var(--gold); }
+  .topbar {
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.07) 0 3px, transparent 3px 40px),
+      var(--turf);
+    color: var(--turf-ink);
+    padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 16px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    border-bottom: 3px solid var(--gold);
+  }
+  .topbar .brand { font-size: 26px; letter-spacing: 0.05em; } .topbar .week { font-size: 28px; color: var(--gold); }
   .tabs { display: flex; background: var(--bg-elevated); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
   .tab { flex: 1; text-align: center; padding: 13px 6px; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; min-width: 70px; }
   .tab.active { color: var(--ink); border-bottom-color: var(--gold); }
@@ -97,7 +105,7 @@ let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
 let adminDraftGames = null;
 let scheduleFilter = '';
-let STATE = { meta: { seasonName: 'Confidence Pool', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [] };
+let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [] };
 
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function normId(name){ return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40); }
@@ -192,9 +200,9 @@ function render(){
   else if (view === 'standings') body = renderStandings();
   else if (view === 'admin') body = renderAdmin();
   app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
-    '<div class="footer-note">' + esc(STATE.meta.seasonName || 'Confidence Pool') + '</div>';
+    '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>';
 }
-function renderTopbar(){ return '<div class="topbar"><div class="brand">' + esc(STATE.meta.seasonName || 'Confidence Pool') + '</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
+function renderTopbar(){ return '<div class="topbar"><div class="brand">The Blitz</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
 function renderTabs(){
   return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
@@ -204,7 +212,7 @@ function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':''
 
 function renderLogin(){
   return '<div class="content" style="padding-top:50px;">' +
-    '<h1 style="font-size:34px;text-align:center;margin-bottom:4px;">' + esc(STATE.meta.seasonName || 'Confidence Pool') + '</h1>' +
+    '<h1 style="font-size:34px;text-align:center;margin-bottom:4px;">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</h1>' +
     '<div class="authtabs">' +
       '<button class="btn ' + (authMode==='login'?'btn-primary':'') + '" onclick="App.setAuthMode(\'login\')">Log In</button>' +
       '<button class="btn ' + (authMode==='signup'?'btn-primary':'') + '" onclick="App.setAuthMode(\'signup\')">Create Account</button>' +
