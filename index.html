@@ -43,17 +43,35 @@
     background-attachment: fixed;
   }
   h1, h2, h3, .num { font-family: "Bebas Neue", "Arial Narrow", sans-serif; letter-spacing: 0.03em; font-weight: 400; }
-  #app { max-width: 640px; margin: 0 auto; padding: 0 0 48px; min-height: 100%; }
+  #app { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; padding: 0 0 48px; min-height: 100%; background: var(--bg); }
+  .yard-markers {
+    position: fixed; top: 0; bottom: 0; width: 56px; z-index: 0;
+    display: flex; flex-direction: column; justify-content: space-evenly; align-items: center;
+    pointer-events: none;
+    font-family: "Bebas Neue", sans-serif; letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.4); text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    font-size: 22px;
+  }
+  .yard-markers.left { left: 6px; } .yard-markers.right { right: 6px; }
+  @media (max-width: 760px) { .yard-markers { display: none; } }
   .topbar {
     background:
-      repeating-linear-gradient(90deg, rgba(255,255,255,0.07) 0 3px, transparent 3px 40px),
-      var(--turf);
-    color: var(--turf-ink);
+      linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
+      repeating-linear-gradient(125deg, rgba(255,255,255,0.10) 0 3px, transparent 3px 9px),
+      linear-gradient(180deg, #FFE27A 0%, #F2B705 30%, #C9890A 62%, #8A5A0B 100%);
     padding: calc(env(safe-area-inset-top, 0px) + 18px) 20px 16px;
     display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-    border-bottom: 3px solid var(--gold);
+    border-bottom: 4px solid #6B4A12;
+    box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25), inset 0 2px 1px rgba(255,255,255,0.6);
   }
-  .topbar .brand { font-size: 26px; letter-spacing: 0.05em; } .topbar .week { font-size: 28px; color: var(--gold); }
+  .diamond-text {
+    background: linear-gradient(180deg, #ffffff 0%, #e4f4ff 30%, #9fd3f5 50%, #ffffff 72%, #cfeaff 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
+  }
+  .topbar .brand { font-size: 27px; letter-spacing: 0.06em; }
+  .topbar .week { font-size: 28px; color: #2A1C04; text-shadow: 0 1px 0 rgba(255,255,255,0.45); }
   .tabs { display: flex; background: var(--bg-elevated); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
   .tab { flex: 1; text-align: center; padding: 13px 6px; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; min-width: 70px; }
   .tab.active { color: var(--ink); border-bottom-color: var(--gold); }
@@ -93,14 +111,16 @@
   a.link { color: var(--gold); cursor: pointer; }
   .login-hero {
     background:
-      repeating-linear-gradient(90deg, rgba(255,255,255,0.07) 0 3px, transparent 3px 40px),
-      var(--turf);
-    color: var(--turf-ink);
-    border-bottom: 3px solid var(--gold);
+      linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
+      repeating-linear-gradient(125deg, rgba(255,255,255,0.10) 0 3px, transparent 3px 9px),
+      linear-gradient(180deg, #FFE27A 0%, #F2B705 30%, #C9890A 62%, #8A5A0B 100%);
+    border-bottom: 4px solid #6B4A12;
+    box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25), inset 0 2px 1px rgba(255,255,255,0.6);
     padding: calc(env(safe-area-inset-top, 0px) + 36px) 20px 28px;
     text-align: center;
   }
-  .login-hero h1 { font-size: 40px; letter-spacing: 0.04em; margin: 0 0 6px; color: var(--gold); }
+  .login-hero h1 { font-size: 40px; letter-spacing: 0.05em; margin: 0 0 6px; }
+  .login-hero .muted { color: #3A2706 !important; opacity: 0.85 !important; }
   .authtabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .authtabs button { flex: 1; }
   .sched-row { border-bottom: 1px solid var(--border); padding: 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
@@ -109,6 +129,8 @@
 </style>
 </head>
 <body>
+<div class="yard-markers left" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
+<div class="yard-markers right" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
 <div id="app"><div class="empty">Loading…</div></div>
 
 <script>
@@ -227,7 +249,7 @@ function render(){
   app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
     '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>';
 }
-function renderTopbar(){ return '<div class="topbar"><div class="brand">The Blitz</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
+function renderTopbar(){ return '<div class="topbar"><div class="brand diamond-text">The Blitz</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
 function renderTabs(){
   return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
@@ -236,8 +258,8 @@ function renderTabs(){
 function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':'') + '" onclick="App.setView(\'' + id + '\')">' + esc(label) + '</button>'; }
 
 function renderLogin(){
-  return '<div class="login-hero"><h1>' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</h1>' +
-    '<div class="muted" style="color:var(--turf-ink);opacity:0.85;">Confidence picks. Bragging rights. Every week.</div></div>' +
+  return '<div class="login-hero"><h1 class="diamond-text">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</h1>' +
+    '<div class="muted">Confidence picks. Bragging rights. Every week.</div></div>' +
     '<div class="content" style="padding-top:22px;">' +
     '<div class="authtabs">' +
       '<button class="btn ' + (authMode==='login'?'btn-primary':'') + '" onclick="App.setAuthMode(\'login\')">Log In</button>' +
