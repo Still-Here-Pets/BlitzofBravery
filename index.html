@@ -37,43 +37,42 @@
     font-family: "Work Sans", system-ui, -apple-system, sans-serif;
     line-height: 1.45;
     scroll-padding-top: env(safe-area-inset-top, 0px);
-    background:
-      repeating-linear-gradient(90deg, rgba(255,255,255,0.9) 0 2px, transparent 2px 5%),
-      repeating-linear-gradient(90deg, color-mix(in srgb, var(--turf) 92%, white) 0 10%, color-mix(in srgb, var(--turf) 76%, black) 10% 20%);
-    background-attachment: fixed;
-  }
-  body::before {
-    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background-image: repeating-linear-gradient(90deg, rgba(255,255,255,0.55) 0 1.5px, transparent 1.5px 10%);
-    -webkit-mask-image: repeating-linear-gradient(180deg, transparent 0 70px, black 70px 90px, transparent 90px 260px, black 260px 280px, transparent 280px 420px);
-    mask-image: repeating-linear-gradient(180deg, transparent 0 70px, black 70px 90px, transparent 90px 260px, black 260px 280px, transparent 280px 420px);
   }
   h1, h2, h3, .num { font-family: "Bebas Neue", "Arial Narrow", sans-serif; letter-spacing: 0.03em; font-weight: 400; }
-  #app { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; padding: 0 0 48px; min-height: 100%; background: var(--bg); }
+
+  .page-flex { display: flex; min-height: 100%; align-items: stretch; }
+  .field-col {
+    flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+    background:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='60' height='400'><rect x='29' y='84' width='2' height='14' fill='white' fill-opacity='0.5'/><rect x='29' y='302' width='2' height='14' fill='white' fill-opacity='0.5'/></svg>"),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.9) 0 2px, transparent 2px 5%),
+      repeating-linear-gradient(90deg, color-mix(in srgb, var(--turf) 92%, white) 0 10%, color-mix(in srgb, var(--turf) 76%, black) 10% 20%);
+  }
+  #app { position: relative; z-index: 1; max-width: 640px; width: 100%; margin: 0 auto; padding: 0 0 48px; background: var(--bg); flex: 1 1 auto; }
   .yard-bar {
-    position: fixed; left: 0; right: 0; height: 26px; z-index: 0;
+    flex: 0 0 auto; height: 26px;
     display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
     pointer-events: none;
     font-family: "Bebas Neue", sans-serif; letter-spacing: 0.02em;
     color: rgba(255,255,255,0.6); text-shadow: 0 1px 2px rgba(0,0,0,0.3);
     font-size: 17px;
   }
-  .yard-bar.top { top: 0; } .yard-bar.bottom { bottom: 0; }
   @media (max-width: 760px) { .yard-bar { display: none; } }
   .endzone-side {
-    position: fixed; top: 0; bottom: 0; width: 70px; z-index: 0;
+    flex: 0 0 70px; width: 70px;
     display: flex; align-items: center; justify-content: center;
-    pointer-events: none;
+    pointer-events: none; position: relative;
   }
+  .endzone-side .endzone-text { position: sticky; top: 45vh; }
   .endzone-side.left {
-    left: 0; border-right: 4px solid #F4F4F0;
+    border-right: 4px solid #F4F4F0;
     background:
       linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
       repeating-linear-gradient(125deg, rgba(255,255,255,0.10) 0 3px, transparent 3px 9px),
       linear-gradient(180deg, #FFE27A 0%, #F2B705 30%, #C9890A 62%, #8A5A0B 100%);
   }
   .endzone-side.right {
-    right: 0; border-left: 4px solid #F4F4F0;
+    border-left: 4px solid #F4F4F0;
     background: radial-gradient(circle at 50% -20%, rgba(255,255,255,0.08), transparent 55%), linear-gradient(180deg, #16211A 0%, #0A100B 100%);
   }
   .endzone-text { writing-mode: vertical-rl; font-size: 24px; letter-spacing: 0.12em; }
@@ -242,11 +241,15 @@
 </style>
 </head>
 <body>
-<div class="yard-bar top" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
-<div class="yard-bar bottom" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
-<div class="endzone-side left" aria-hidden="true"><span class="endzone-text gold">THE BLITZ</span></div>
-<div class="endzone-side right" aria-hidden="true"><span class="endzone-text dark">THE BLITZ</span></div>
-<div id="app"><div class="empty">Loading…</div></div>
+<div class="page-flex">
+  <div class="endzone-side left" aria-hidden="true"><span class="endzone-text gold">THE BLITZ</span></div>
+  <div class="field-col">
+    <div class="yard-bar top" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
+    <div id="app"><div class="empty">Loading…</div></div>
+    <div class="yard-bar bottom" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
+  </div>
+  <div class="endzone-side right" aria-hidden="true"><span class="endzone-text dark">THE BLITZ</span></div>
+</div>
 
 <script>
 (function(){
