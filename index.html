@@ -38,7 +38,18 @@
     line-height: 1.45;
     scroll-padding-top: env(safe-area-inset-top, 0px);
     background:
-      repeating-linear-gradient(90deg, rgba(255,255,255,0.8) 0 2px, transparent 2px 5%, rgba(255,255,255,0.4) 5% calc(5% + 1px), transparent calc(5% + 1px) 10%),
+      repeating-linear-gradient(90deg,
+        rgba(255,255,255,0.85) 0 2px, transparent 2px 1%,
+        rgba(255,255,255,0.22) 1% calc(1% + 1px), transparent calc(1% + 1px) 2%,
+        rgba(255,255,255,0.22) 2% calc(2% + 1px), transparent calc(2% + 1px) 3%,
+        rgba(255,255,255,0.22) 3% calc(3% + 1px), transparent calc(3% + 1px) 4%,
+        rgba(255,255,255,0.22) 4% calc(4% + 1px), transparent calc(4% + 1px) 5%,
+        rgba(255,255,255,0.45) 5% calc(5% + 1px), transparent calc(5% + 1px) 6%,
+        rgba(255,255,255,0.22) 6% calc(6% + 1px), transparent calc(6% + 1px) 7%,
+        rgba(255,255,255,0.22) 7% calc(7% + 1px), transparent calc(7% + 1px) 8%,
+        rgba(255,255,255,0.22) 8% calc(8% + 1px), transparent calc(8% + 1px) 9%,
+        rgba(255,255,255,0.22) 9% calc(9% + 1px), transparent calc(9% + 1px) 10%
+      ),
       repeating-linear-gradient(90deg, color-mix(in srgb, var(--turf) 92%, white) 0 10%, color-mix(in srgb, var(--turf) 76%, black) 10% 20%);
     background-attachment: fixed;
   }
