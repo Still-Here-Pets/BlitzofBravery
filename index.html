@@ -6,7 +6,7 @@
 <title>The Blitz of Bravery</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Playfair+Display:wght@900&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -95,12 +95,12 @@
   @media (max-width: 900px) { .endzone-side { display: none; } }
   .topbar {
     background:
-      linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
-      repeating-linear-gradient(125deg, rgba(255,255,255,0.10) 0 3px, transparent 3px 9px),
-      linear-gradient(180deg, #FFE27A 0%, #F2B705 30%, #C9890A 62%, #8A5A0B 100%);
-    padding: calc(env(safe-area-inset-top, 0px) + 22px) 20px 20px;
+      linear-gradient(100deg, transparent 28%, rgba(255,255,255,0.65) 44%, rgba(255,255,255,0.2) 53%, transparent 68%),
+      radial-gradient(circle at 25% -10%, rgba(255,255,255,0.55), transparent 55%),
+      linear-gradient(180deg, #FFEC9A 0%, #FBD24A 22%, #F0AC12 45%, #C8860A 68%, #8A5A0B 100%);
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 20px 14px;
     position: relative;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 2px;
     border-bottom: 4px solid #6B4A12;
     box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25), inset 0 2px 1px rgba(255,255,255,0.6);
   }
@@ -110,11 +110,40 @@
     text-shadow: 0 1px 0 rgba(255,255,255,0.85);
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4)) drop-shadow(0 0 14px rgba(255,255,255,0.55));
   }
-  .topbar .brand { font-family: "Bebas Neue", sans-serif; font-size: 50px; font-weight: 700; letter-spacing: 0.08em; }
-  .topbar .week {
-    font-size: 14px; font-weight: 700; letter-spacing: 0.03em;
-    color: #2A1C04; background: rgba(255,255,255,0.35);
-    padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(0,0,0,0.15);
+  .bolt {
+    position: absolute; width: 15px; height: 15px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #F3E2BA 0%, #B08A3E 45%, #6B4A1E 100%);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.55), inset 0 1px 1px rgba(255,255,255,0.5), inset 0 -1px 2px rgba(0,0,0,0.55);
+  }
+  .bolt::after {
+    content: ''; position: absolute; top: 50%; left: 18%; right: 18%; height: 2px;
+    background: rgba(0,0,0,0.45); border-radius: 1px; transform: translateY(-50%) rotate(25deg);
+  }
+  .bolt.tl { top: 10px; left: 10px; }
+  .bolt.tr { top: 10px; right: 10px; }
+  .bolt.bl { bottom: 10px; left: 10px; }
+  .bolt.br { bottom: 10px; right: 10px; }
+  .brand-svg { width: 100%; max-width: 510px; height: auto; overflow: visible; display: block; }
+  .diamond-letters {
+    font-family: "Playfair Display", serif; font-weight: 900;
+    stroke: #8A6A1E; stroke-width: 1.2;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+  }
+  .led-plate {
+    background: linear-gradient(180deg, #0A1A10 0%, #04100A 100%);
+    border: 2px solid #3A2E0E;
+    border-radius: 7px;
+    padding: 5px 14px 3px;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.6);
+  }
+  .led-label {
+    font-family: "Work Sans", sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.13em;
+    color: rgba(255, 214, 10, 0.55); text-align: center; margin-bottom: 1px;
+  }
+  .led-digits {
+    font-family: "Bebas Neue", sans-serif; font-size: 23px; letter-spacing: 0.06em; line-height: 1;
+    color: #FFD60A;
+    text-shadow: 0 0 5px rgba(255,214,10,0.9), 0 0 12px rgba(255,214,10,0.6), 0 0 24px rgba(255,214,10,0.3);
   }
   .tabs { display: flex; background: var(--bg-elevated); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
   .tab { flex: 1; text-align: center; padding: 13px 6px; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; min-width: 70px; }
@@ -467,7 +496,23 @@ function renderClaimModal(){
     '</div></div>';
   return html;
 }
-function renderTopbar(){ return '<div class="topbar"><div class="brand diamond-text">The Blitz</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
+function renderTopbar(){
+  const wk = esc(STATE.meta.currentWeek);
+  return '<div class="topbar">' +
+    '<div class="bolt tl"></div><div class="bolt tr"></div><div class="bolt bl"></div><div class="bolt br"></div>' +
+    '<svg class="brand-svg" viewBox="0 0 820 150" xmlns="http://www.w3.org/2000/svg">' +
+      '<defs><pattern id="diamondFill" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">' +
+        '<rect width="11" height="11" fill="#D7E4EE"></rect>' +
+        '<circle cx="3" cy="3" r="2.6" fill="#ffffff"></circle>' +
+        '<circle cx="3" cy="3" r="0.8" fill="#aecbe0"></circle>' +
+        '<circle cx="8.5" cy="7.5" r="2" fill="#f3f8fb"></circle>' +
+        '<circle cx="8.5" cy="7.5" r="0.6" fill="#9fc0d8"></circle>' +
+      '</pattern></defs>' +
+      '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFill)">Blitz of Bravery</text>' +
+    '</svg>' +
+    '<div class="led-plate"><div class="led-label">WEEK</div><div class="led-digits">' + (STATE.meta.currentWeek < 10 ? '0' : '') + wk + '</div></div>' +
+  '</div>';
+}
 function renderTabs(){
   return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('board','Board') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
