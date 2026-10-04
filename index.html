@@ -240,6 +240,7 @@ let scheduleLeagueFilter = '';
 let scheduleSelected = {};
 const TOTAL_WEEKS = 15;
 let picksViewWeek = null;
+let standingsViewWeek = null;
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
 
@@ -483,28 +484,72 @@ function teamBtn(g, side, selected, disabled, isTb){
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
 function toLocalInputValue(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; const pad = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }
 
+function rankedTable(rows, valueKey, leaderBack){
+  let html = '<table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th></tr></thead><tbody>';
+  const lead = rows.length ? rows[0][valueKey] : 0;
+  rows.forEach((r,i) => {
+    const back = lead - r[valueKey];
+    html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + '</td>' +
+      '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
 function renderStandings(){
-  const wk = STATE.meta.currentWeek;
   const players = Object.keys(STATE.players);
   if (!players.length) return '<div class="empty">No players yet.</div>';
-  let html = '<h3 style="margin:0 0 8px;">Week ' + esc(wk) + ' Leaderboard</h3>';
+  const wk = standingsViewWeek != null ? standingsViewWeek : STATE.meta.currentWeek;
+  let html = '<label>Viewing</label><select onchange="App.setStandingsWeek(this.value)">' + weekOptions(wk) + '</select>';
+  html += '<h3 style="margin:12px 0 8px;">Week ' + esc(wk) + ' Leaderboard</h3>';
   const w = getWeek(wk);
   const tb = w ? w.games.find(g => g.isTiebreaker) : null;
   const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
   let rows = players.map(pid => ({ pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, submitted: !!STATE.picks[pickDocId(wk,pid)] })).filter(r => r.submitted);
   rows.sort((a,b) => b.score - a.score || a.diff - b.diff);
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
-  else {
-    html += '<table><thead><tr><th>Player</th><th class="num">Pts</th></tr></thead><tbody>';
-    rows.forEach((r,i) => { html += '<tr><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + '</td><td class="num">' + r.score + '</td></tr>'; });
-    html += '</tbody></table>';
-  }
+  else html += rankedTable(rows, 'score');
+
   html += '<hr class="divider"><h3 style="margin:0 0 8px;">Season Standings</h3>';
   let season = players.map(pid => ({ pid, name: STATE.players[pid].displayName, total: seasonTotal(pid) }));
   season.sort((a,b) => b.total - a.total);
-  html += '<table><thead><tr><th>Player</th><th class="num">Total</th></tr></thead><tbody>';
-  season.forEach((r,i) => { html += '<tr><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + '</td><td class="num">' + r.total + '</td></tr>'; });
-  html += '</tbody></table>';
+  html += rankedTable(season, 'total');
+
+  html += '<hr class="divider">';
+  html += renderSurvivorBoard(1, '1-Point Survivor');
+  html += renderSurvivorBoard(10, '10-Point Survivor');
+  return html;
+}
+function survivorStatus(playerId, pointValue){
+  const weeks = allWeekNumbers();
+  for (const n of weeks){
+    const w = getWeek(n);
+    if (!w || !w.games || !w.games.length) continue;
+    const p = STATE.picks[pickDocId(n, playerId)];
+    if (!p){ return { alive:false, eliminatedWeek:n, reason:'no picks submitted' }; }
+    const entry = Object.entries(p.gamePicks||{}).find(([gid,pick]) => pick.value === pointValue);
+    if (!entry){ return { alive:false, eliminatedWeek:n, reason:'no ' + pointValue + '-pt pick found' }; }
+    const [gameId, pick] = entry;
+    const game = w.games.find(g => g.id === gameId);
+    if (!game || !game.winner) return { alive:true, pendingWeek:n }; // not decided yet — stop here, still alive
+    if (pick.winner !== game.winner) return { alive:false, eliminatedWeek:n, reason: (pick.winner==='away'?game.away:game.home) + ' lost' };
+  }
+  return { alive:true };
+}
+function renderSurvivorBoard(pointValue, title){
+  const players = Object.keys(STATE.players);
+  const results = players.map(pid => ({ pid, name: STATE.players[pid].displayName, status: survivorStatus(pid, pointValue) }));
+  const alive = results.filter(r => r.status.alive);
+  const out = results.filter(r => !r.status.alive).sort((a,b) => b.status.eliminatedWeek - a.status.eliminatedWeek);
+  let html = '<h3 style="margin:0 0 4px;">' + esc(title) + '</h3>' +
+    '<p class="muted" style="margin-bottom:10px;">Stay alive as long as your Week-by-week ' + pointValue + '-point pick keeps winning. One loss and you\'re out for the season.</p>';
+  html += '<div class="muted" style="font-weight:700;margin-bottom:4px;">STILL ALIVE (' + alive.length + ')</div>';
+  if (!alive.length) html += '<div class="empty">Nobody left.</div>';
+  else html += alive.map(r => '<span class="badge good" style="margin:2px 4px 2px 0;display:inline-block;">' + esc(r.name) + '</span>').join('');
+  if (out.length){
+    html += '<div class="muted" style="font-weight:700;margin:12px 0 4px;">ELIMINATED</div><table><tbody>';
+    out.forEach(r => { html += '<tr><td>' + esc(r.name) + '</td><td class="muted">Week ' + r.status.eliminatedWeek + ' — ' + esc(r.status.reason) + '</td></tr>'; });
+    html += '</tbody></table>';
+  }
   return html;
 }
 
@@ -642,6 +687,7 @@ const App = {
   setAuthMode(m){ authMode = m; render(); },
   setScheduleFilter(v){ scheduleFilter = v; render(); },
   setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
+  setStandingsWeek(v){ standingsViewWeek = parseInt(v,10); render(); },
   async setPicksWeek(v){
     const n = parseInt(v, 10);
     picksViewWeek = n;
