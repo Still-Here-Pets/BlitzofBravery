@@ -331,7 +331,8 @@ async function loadConfig(){
   STATE.meta = {
     seasonName: data.season_name, currentWeek: data.current_week,
     weekly1st: data.weekly_1st, weekly2nd: data.weekly_2nd, weekly3rd: data.weekly_3rd,
-    season1st: data.season_1st, season2nd: data.season_2nd, season3rd: data.season_3rd
+    season1st: data.season_1st, season2nd: data.season_2nd, season3rd: data.season_3rd,
+    survivor10pt: data.survivor_10pt_prize, survivor1pt: data.survivor_1pt_prize
   };
 }
 async function loadWeekGames(wk){
@@ -623,8 +624,9 @@ function renderSurvivorBoard(pointValue, title){
   const results = players.map(pid => ({ pid, name: STATE.players[pid].displayName, status: survivorStatus(pid, pointValue) }));
   const alive = results.filter(r => r.status.alive);
   const out = results.filter(r => !r.status.alive).sort((a,b) => b.status.eliminatedWeek - a.status.eliminatedWeek);
-  let html = '<h3 style="margin:0 0 4px;">' + esc(title) + '</h3>' +
-    '<p class="muted" style="margin-bottom:10px;">Stay alive as long as your Week-by-week ' + pointValue + '-point pick keeps winning. One loss and you\'re out for the season.</p>';
+  const prize = pointValue === 10 ? STATE.meta.survivor10pt : STATE.meta.survivor1pt;
+  let html = '<h3 style="margin:0 0 4px;">' + esc(title) + (prize!=null ? ' <span class="badge gold">$' + prize + '</span>' : '') + '</h3>' +
+    '<p class="muted" style="margin-bottom:10px;">Stay alive as long as your Week-by-week ' + pointValue + '-point pick keeps winning. One loss and you\'re out for the season.' + (prize!=null ? ' Whoever\'s still standing at the end wins $' + prize + '.' : '') + '</p>';
   html += '<div class="muted" style="font-weight:700;margin-bottom:4px;">STILL ALIVE (' + alive.length + ')</div>';
   if (!alive.length) html += '<div class="empty">Nobody left.</div>';
   else html += alive.map(r => '<span class="badge good" style="margin:2px 4px 2px 0;display:inline-block;">' + esc(r.name) + '</span>').join('');
@@ -751,6 +753,8 @@ function renderAdmin(){
     '<div class="row" style="margin-top:8px;"><div><label>Season 1st</label><input id="pay-s1" type="number" value="' + (STATE.meta.season1st??'') + '"></div>' +
     '<div><label>Season 2nd</label><input id="pay-s2" type="number" value="' + (STATE.meta.season2nd??'') + '"></div>' +
     '<div><label>Season 3rd</label><input id="pay-s3" type="number" value="' + (STATE.meta.season3rd??'') + '"></div></div>' +
+    '<div class="row" style="margin-top:8px;"><div><label>10-pt Survivor prize</label><input id="pay-sv10" type="number" value="' + (STATE.meta.survivor10pt??'') + '"></div>' +
+    '<div><label>1-pt Survivor prize</label><input id="pay-sv1" type="number" value="' + (STATE.meta.survivor1pt??'') + '"></div></div>' +
     '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.savePayouts()">Save Payouts</button></div>';
 
   const players = Object.entries(STATE.players);
@@ -967,7 +971,8 @@ const App = {
     try {
       await sb.from('pool_config').update({
         weekly_1st: val('pay-w1'), weekly_2nd: val('pay-w2'), weekly_3rd: val('pay-w3'),
-        season_1st: val('pay-s1'), season_2nd: val('pay-s2'), season_3rd: val('pay-s3')
+        season_1st: val('pay-s1'), season_2nd: val('pay-s2'), season_3rd: val('pay-s3'),
+        survivor_10pt_prize: val('pay-sv10'), survivor_1pt_prize: val('pay-sv1')
       }).eq('id', 1);
       await loadConfig(); render();
     } catch(e){ showError(e); }
