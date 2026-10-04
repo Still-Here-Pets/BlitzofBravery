@@ -203,10 +203,12 @@
     box-shadow: 0 0 5px 1px rgba(255, 214, 10, 0.85);
   }
   .scorecard-head {
-    display: flex; justify-content: space-between; align-items: center; padding: 6px 14px 4px;
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 6px 14px 4px; gap: 8px;
     font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
     color: rgba(255,255,255,0.5);
   }
+  .scorecard-head > span:last-child { justify-self: end; }
+  .scorecard-live { justify-self: center; color: #FFD60A; font-size: 11px; white-space: nowrap; }
   .status-pill {
     font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.06em;
     padding: 2px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
@@ -353,7 +355,7 @@ function seasonTotal(playerId){
 }
 
 // ---------- Supabase data access ----------
-function rowToGame(r){ return { id: r.id, league: r.league, away: r.away, home: r.home, kickoff: r.kickoff, isTiebreaker: r.is_tiebreaker, winner: r.winner, awayScore: r.away_score, homeScore: r.home_score }; }
+function rowToGame(r){ return { id: r.id, league: r.league, away: r.away, home: r.home, kickoff: r.kickoff, isTiebreaker: r.is_tiebreaker, winner: r.winner, awayScore: r.away_score, homeScore: r.home_score, liveStatus: r.live_status }; }
 function rowToPick(r){ return { week: r.week_number, playerId: r.player_id, displayName: r.display_name, gamePicks: r.game_picks || {}, omitGameId: r.omit_game_id, tiebreaker: r.tiebreaker, submittedAt: r.submitted_at, isHammer: r.is_hammer, isInsurance: r.is_insurance }; }
 
 async function loadConfig(){
@@ -618,7 +620,9 @@ function renderScorecard(g, pickWinner, isSkipped, footHtml){
   return '<div class="scorecard">' +
     (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
     '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
-    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span><span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
+    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span>' +
+      '<span class="scorecard-live">' + (statusClass==='live' && g.liveStatus ? esc(g.liveStatus) : '') + '</span>' +
+      '<span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
     bulbs +
   '</div>';
 }
