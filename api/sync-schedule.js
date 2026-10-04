@@ -79,11 +79,19 @@ module.exports = async (req, res) => {
       // Winner is only set once the game is actually final, so grading stays accurate,
       // but the score numbers update live for the Picks screen throughout the game.
       const winner = g.completed ? (g.awayScore > g.homeScore ? 'away' : (g.homeScore > g.awayScore ? 'home' : 'tie')) : null;
-      const { data: matches, error } = await sb.from('games')
-        .select('id, winner')
+      const { data: rawMatches, error } = await sb.from('games')
+        .select('id, winner, kickoff')
         .eq('away', g.away).eq('home', g.home);
       if (error) { results.errors.push(error.message); continue; }
-      if (matches && matches.length && g.started) {
+      // Two teams can play twice in a season (divisional rematches), so matching
+      // on names alone risks bleeding one week's live score into another week's
+      // row. Require the stored kickoff to actually be close to this event's.
+      const gKick = g.kickoff ? new Date(g.kickoff).getTime() : null;
+      const matches = (rawMatches || []).filter(m => {
+        if (!gKick || !m.kickoff) return true; // no timestamp to compare, fall back to name match
+        return Math.abs(new Date(m.kickoff).getTime() - gKick) < 36 * 3600 * 1000;
+      });
+      if (matches.length && g.started) {
         for (const m of matches) {
           if (m.winner) continue; // already graded, don't touch
           const update = { away_score: g.awayScore, home_score: g.homeScore };

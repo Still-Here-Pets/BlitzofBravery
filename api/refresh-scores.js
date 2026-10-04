@@ -24,6 +24,7 @@ function parseEvents(json, league) {
       home: home.team.displayName,
       awayScore: away.score != null ? parseInt(away.score, 10) : null,
       homeScore: home.score != null ? parseInt(home.score, 10) : null,
+      kickoff: comp.date,
       completed: !!(comp.status && comp.status.type && comp.status.type.completed),
       started: !!(comp.status && comp.status.type && comp.status.type.state !== 'pre')
     };
@@ -44,10 +45,15 @@ module.exports = async (req, res) => {
     for (const g of games) {
       if (!g.started) continue; // nothing to update until kickoff
       const winner = g.completed ? (g.awayScore > g.homeScore ? 'away' : (g.homeScore > g.awayScore ? 'home' : 'tie')) : null;
-      const { data: matches, error } = await sb.from('games')
-        .select('id, winner').eq('away', g.away).eq('home', g.home);
+      const { data: rawMatches, error } = await sb.from('games')
+        .select('id, winner, kickoff').eq('away', g.away).eq('home', g.home);
       if (error) { results.errors.push(error.message); continue; }
-      for (const m of (matches || [])) {
+      const gKick = g.kickoff ? new Date(g.kickoff).getTime() : null;
+      const matches = (rawMatches || []).filter(m => {
+        if (!gKick || !m.kickoff) return true;
+        return Math.abs(new Date(m.kickoff).getTime() - gKick) < 36 * 3600 * 1000;
+      });
+      for (const m of matches) {
         if (m.winner) continue; // already graded, don't touch
         const update = { away_score: g.awayScore, home_score: g.homeScore };
         if (winner) update.winner = winner;
