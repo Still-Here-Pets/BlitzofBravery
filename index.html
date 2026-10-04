@@ -570,6 +570,30 @@ function rankedTable(rows, valueKey, prizeAmounts){
   html += '</tbody></table>';
   return html;
 }
+function computeMoneyTotals(){
+  const players = Object.keys(STATE.players);
+  const totals = {}; players.forEach(pid => totals[pid] = 0);
+  if (STATE.meta.weekly1st == null && STATE.meta.weekly2nd == null && STATE.meta.weekly3rd == null) return totals;
+  const prizeAmounts = [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd];
+  Object.keys(STATE.weeks).map(Number).forEach(n => {
+    const w = getWeek(n);
+    const tb = w ? w.games.find(g => g.isTiebreaker) : null;
+    const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
+    let rows = players.map(pid => {
+      const pick = STATE.picks[pickDocId(n,pid)];
+      return { pid, score: weeklyScore(n, pid), diff: tbFinal ? tiebreakerDiff(n, pid) : Infinity, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)) };
+    }).filter(r => r.submitted);
+    rows.sort((a,b) => b.score - a.score || a.diff - b.diff);
+    let prizeRank = 0;
+    rows.forEach(r => {
+      if (!r.eligible) return;
+      const amt = prizeAmounts[prizeRank];
+      if (amt != null) totals[r.pid] = (totals[r.pid]||0) + amt;
+      prizeRank++;
+    });
+  });
+  return totals;
+}
 function renderStandings(){
   const players = Object.keys(STATE.players);
   if (!players.length) return '<div class="empty">No players yet.</div>';
@@ -594,6 +618,21 @@ function renderStandings(){
   season.sort((a,b) => b.total - a.total);
   const seasonPrizes = (STATE.meta.season1st!=null || STATE.meta.season2nd!=null || STATE.meta.season3rd!=null) ? [STATE.meta.season1st, STATE.meta.season2nd, STATE.meta.season3rd] : null;
   html += rankedTable(season, 'total', seasonPrizes);
+
+  html += '<hr class="divider"><h3 style="margin:0 0 8px;">Total Money Leaders</h3>';
+  const moneyTotals = computeMoneyTotals();
+  const anyMoney = Object.values(moneyTotals).some(v => v > 0);
+  if (STATE.meta.weekly1st == null && STATE.meta.weekly2nd == null && STATE.meta.weekly3rd == null){
+    html += '<div class="empty">Set weekly payout amounts in Admin to track winnings.</div>';
+  } else if (!anyMoney){
+    html += '<div class="empty">No weekly prizes have been won yet.</div>';
+  } else {
+    let moneyRows = players.map(pid => ({ pid, name: STATE.players[pid].displayName, won: moneyTotals[pid]||0 })).filter(r => r.won > 0);
+    moneyRows.sort((a,b) => b.won - a.won);
+    html += '<table><thead><tr><th>#</th><th>Player</th><th class="num">Won</th></tr></thead><tbody>';
+    moneyRows.forEach((r,i) => { html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + '</td><td class="num">$' + r.won + '</td></tr>'; });
+    html += '</tbody></table>';
+  }
 
   html += '<hr class="divider">';
   html += renderSurvivorBoard(1, '1-Point Survivor');
