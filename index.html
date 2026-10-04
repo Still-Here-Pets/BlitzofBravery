@@ -1187,6 +1187,7 @@ async function boot(){
       const { data: profile } = await sb.from('profiles').select('*').eq('id', authSession.user.id).maybeSingle();
       if (profile) session = { playerId: authSession.user.id, displayName: profile.display_name, isAdmin: profile.is_admin, hammerUsed: profile.hammer_used };
     }
+    try { await fetch('/api/refresh-scores'); } catch(e) { /* best-effort; stale data beats a broken page */ }
     await loadConfig();
     await loadWeekGames(STATE.meta.currentWeek);
     if (session.playerId) await loadOwnPick(STATE.meta.currentWeek, session.playerId);
