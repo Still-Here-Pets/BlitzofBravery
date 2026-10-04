@@ -268,6 +268,7 @@ let session = {};      // { playerId, displayName, isAdmin }
 let view = 'login';
 let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
+let hammerMode = false;
 let adminDraftGames = null;
 let scheduleFilter = '';
 let scheduleLeagueFilter = '';
@@ -322,12 +323,16 @@ function seasonTotal(playerId){
 
 // ---------- Supabase data access ----------
 function rowToGame(r){ return { id: r.id, league: r.league, away: r.away, home: r.home, kickoff: r.kickoff, isTiebreaker: r.is_tiebreaker, winner: r.winner, awayScore: r.away_score, homeScore: r.home_score }; }
-function rowToPick(r){ return { week: r.week_number, playerId: r.player_id, displayName: r.display_name, gamePicks: r.game_picks || {}, omitGameId: r.omit_game_id, tiebreaker: r.tiebreaker, submittedAt: r.submitted_at }; }
+function rowToPick(r){ return { week: r.week_number, playerId: r.player_id, displayName: r.display_name, gamePicks: r.game_picks || {}, omitGameId: r.omit_game_id, tiebreaker: r.tiebreaker, submittedAt: r.submitted_at, isHammer: r.is_hammer, isInsurance: r.is_insurance }; }
 
 async function loadConfig(){
   const { data, error } = await sb.from('pool_config').select('*').eq('id',1).single();
   if (error) throw error;
-  STATE.meta = { seasonName: data.season_name, currentWeek: data.current_week };
+  STATE.meta = {
+    seasonName: data.season_name, currentWeek: data.current_week,
+    weekly1st: data.weekly_1st, weekly2nd: data.weekly_2nd, weekly3rd: data.weekly_3rd,
+    season1st: data.season_1st, season2nd: data.season_2nd, season3rd: data.season_3rd
+  };
 }
 async function loadWeekGames(wk){
   const [{ data: wkRow }, { data: gameRows, error }] = await Promise.all([
@@ -335,7 +340,7 @@ async function loadWeekGames(wk){
     sb.from('games').select('*').eq('week_number', wk).order('kickoff', { ascending: true })
   ]);
   if (error) throw error;
-  STATE.weeks[weekKey(wk)] = { locked: wkRow ? wkRow.locked : false, startDate: wkRow ? wkRow.start_date : null, games: (gameRows||[]).map(rowToGame) };
+  STATE.weeks[weekKey(wk)] = { locked: wkRow ? wkRow.locked : false, startDate: wkRow ? wkRow.start_date : null, hammerGameId: wkRow ? wkRow.hammer_game_id : null, games: (gameRows||[]).map(rowToGame) };
 }
 async function loadAllWeeksAndPicks(){
   const [{ data: weekRows }, { data: gameRows }, { data: pickRows }, { data: profileRows }] = await Promise.all([
@@ -462,19 +467,41 @@ function renderPicks(){
   if (!w || !w.games || !w.games.length) return html + '<div class="empty" style="margin-top:14px;">No games have been posted for Week ' + esc(wk) + ' yet. Check back soon.</div>';
   const locked = isLocked(w);
   const existing = STATE.picks[pickDocId(wk, session.playerId)];
-  if (!draft || draft.week !== wk) draft = existing ? JSON.parse(JSON.stringify(existing)) : { week: wk, gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
+  if (!draft || draft.week !== wk){
+    draft = existing ? JSON.parse(JSON.stringify(existing)) : { week: wk, gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
+    hammerMode = existing ? !!existing.isHammer : false;
+  }
   const regular = w.games.filter(g => !g.isTiebreaker);
   const tb = w.games.find(g => g.isTiebreaker);
+  const hammerGame = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
+  const hammerAvailable = hammerGame && !session.hammerUsed;
   if (locked) html += '<div class="banner" style="margin-top:14px;">Picks for Week ' + esc(wk) + ' are locked.' + (existing ? ' Showing what you submitted.' : ' You did not submit picks for this week.') + '</div>';
+  else if (hammerMode) html += '<div class="banner" style="margin-top:14px;background:color-mix(in srgb, var(--gold) 18%, var(--bg-elevated));border-color:var(--gold);">⚡ Seau\'s Hammer is ON — all 55 points ride on the hammer game below. You can only use this once all season, and you can\'t win the weekly 1st/2nd/3rd prize on a hammer week.</div>';
   else html += '<p class="muted" style="margin-top:14px;">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Skip exactly one game. Then set your Monday-night tiebreaker.</p>';
+  if (existing && existing.isInsurance) html += '<div class="banner">This week was auto-filled by Insurance (picks weren\'t submitted in time). These points still count, but this week is not eligible for the weekly prize.</div>';
+  if (!locked && hammerAvailable){
+    html += '<button class="btn ' + (hammerMode?'btn-primary':'') + '" style="margin-bottom:10px;" onclick="App.toggleHammerMode()">' + (hammerMode ? '⚡ Hammer mode ON — tap to go back to normal picks' : '⚡ Use Seau\'s Hammer this week') + '</button>';
+  }
   if (existing) html += renderPointsSummary(wk, regular);
+
+  if (hammerMode && hammerGame && !locked){
+    const pick = draft.gamePicks[hammerGame.id] || {};
+    html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffLabel(hammerGame.kickoff) + '</span></div>' +
+      '<div class="pick-buttons">' + teamBtn(hammerGame,'away', pick.winner==='away', false, false, true) + teamBtn(hammerGame,'home', pick.winner==='home', false, false, true) + '</div>' +
+      '<div class="muted">All 55 points go on this pick.</div></div>';
+  } else if (hammerMode && existing && existing.isHammer && locked){
+    const pick = draft.gamePicks[hammerGame ? hammerGame.id : Object.keys(draft.gamePicks)[0]] || Object.values(draft.gamePicks)[0] || {};
+    const hg = hammerGame || w.games.find(g => draft.gamePicks[g.id]);
+    if (hg) html += renderScorecard(hg, pick.winner, false, '<span><span class="badge gold">55 pts</span> (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
+  } else {
   const usedValues = new Set(Object.values(draft.gamePicks).map(p => p.value).filter(v => v != null));
   regular.forEach(g => {
     const isSkipped = draft.omitGameId === g.id;
     const pick = draft.gamePicks[g.id] || {};
+    const isHammerGame = w.hammerGameId === g.id;
     if (!locked){
       html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
-        '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+        '<div class="game-meta"><span>' + esc(g.league||'') + (isHammerGame?' · hammer game available':'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
         '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped) + teamBtn(g,'home', pick.winner==='home', isSkipped) + '</div>' +
         '<div class="game-controls">' +
           '<select ' + (isSkipped||!pick.winner?'disabled':'') + ' onchange="App.setValue(\'' + g.id + '\', this.value)">' +
@@ -489,6 +516,7 @@ function renderPicks(){
       html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
     }
   });
+  }
   if (tb){
     const tbp = draft.tiebreaker || {};
     if (!locked){
@@ -510,21 +538,33 @@ function renderPicks(){
   return html;
 }
 function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge">Missed</span>'; }
-function teamBtn(g, side, selected, disabled, isTb){
+function teamBtn(g, side, selected, disabled, isTb, isHammer){
   const name = side === 'away' ? g.away : g.home;
-  const fn = isTb ? "App.setTbWinner('" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')";
+  const fn = isTb ? "App.setTbWinner('" + side + "')" : (isHammer ? "App.setHammerWinner('" + g.id + "','" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')");
   return '<button class="pick-btn ' + (selected?'selected':'') + '" ' + (disabled?'disabled':'') + ' onclick="' + (disabled?'':fn) + '">' + esc(name) + '</button>';
 }
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
 function toLocalInputValue(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; const pad = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }
 
-function rankedTable(rows, valueKey, leaderBack){
-  let html = '<table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th></tr></thead><tbody>';
+function rankedTable(rows, valueKey, prizeAmounts){
+  const showPrize = !!prizeAmounts;
+  let html = '<table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
   const lead = rows.length ? rows[0][valueKey] : 0;
+  let prizeRank = 0;
   rows.forEach((r,i) => {
     const back = lead - r[valueKey];
-    html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + '</td>' +
-      '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td></tr>';
+    let prizeCell = '';
+    if (showPrize){
+      if (r.eligible === false){
+        prizeCell = '<td class="num muted">' + esc(r.tag||'—') + '</td>';
+      } else {
+        const amt = prizeAmounts[prizeRank];
+        prizeCell = '<td class="num">' + (amt!=null ? ('$' + amt) : '—') + '</td>';
+        prizeRank++;
+      }
+    }
+    html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + (r.tag && r.eligible!==false ? ' <span class="muted">' + esc(r.tag) + '</span>' : '') + '</td>' +
+      '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table>';
   return html;
@@ -538,15 +578,21 @@ function renderStandings(){
   const w = getWeek(wk);
   const tb = w ? w.games.find(g => g.isTiebreaker) : null;
   const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
-  let rows = players.map(pid => ({ pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, submitted: !!STATE.picks[pickDocId(wk,pid)] })).filter(r => r.submitted);
+  let rows = players.map(pid => {
+    const pick = STATE.picks[pickDocId(wk,pid)];
+    const tag = pick && pick.isHammer ? '(hammer)' : (pick && pick.isInsurance ? '(insurance)' : '');
+    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
+  }).filter(r => r.submitted);
   rows.sort((a,b) => b.score - a.score || a.diff - b.diff);
+  const weeklyPrizes = (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
-  else html += rankedTable(rows, 'score');
+  else html += rankedTable(rows, 'score', weeklyPrizes);
 
   html += '<hr class="divider"><h3 style="margin:0 0 8px;">Season Standings</h3>';
   let season = players.map(pid => ({ pid, name: STATE.players[pid].displayName, total: seasonTotal(pid) }));
   season.sort((a,b) => b.total - a.total);
-  html += rankedTable(season, 'total');
+  const seasonPrizes = (STATE.meta.season1st!=null || STATE.meta.season2nd!=null || STATE.meta.season3rd!=null) ? [STATE.meta.season1st, STATE.meta.season2nd, STATE.meta.season3rd] : null;
+  html += rankedTable(season, 'total', seasonPrizes);
 
   html += '<hr class="divider">';
   html += renderSurvivorBoard(1, '1-Point Survivor');
@@ -560,11 +606,14 @@ function survivorStatus(playerId, pointValue){
     if (!w || !w.games || !w.games.length) continue;
     const p = STATE.picks[pickDocId(n, playerId)];
     if (!p){ return { alive:false, eliminatedWeek:n, reason:'no picks submitted' }; }
-    const entry = Object.entries(p.gamePicks||{}).find(([gid,pick]) => pick.value === pointValue);
+    const entry = p.isHammer
+      ? Object.entries(p.gamePicks||{})[0]
+      : Object.entries(p.gamePicks||{}).find(([gid,pick]) => pick.value === pointValue);
     if (!entry){ return { alive:false, eliminatedWeek:n, reason:'no ' + pointValue + '-pt pick found' }; }
     const [gameId, pick] = entry;
     const game = w.games.find(g => g.id === gameId);
     if (!game || !game.winner) return { alive:true, pendingWeek:n }; // not decided yet — stop here, still alive
+    if (game.winner === 'tie') return { alive:false, eliminatedWeek:n, reason: 'game tied' };
     if (pick.winner !== game.winner) return { alive:false, eliminatedWeek:n, reason: (pick.winner==='away'?game.away:game.home) + ' lost' };
   }
   return { alive:true };
@@ -652,6 +701,7 @@ function renderAdmin(){
     const slots = [];
     for (let i=0;i<11;i++) slots.push(regExisting[i] ? JSON.parse(JSON.stringify(regExisting[i])) : blankSlot(false));
     slots.push(tbExisting ? JSON.parse(JSON.stringify(tbExisting)) : blankSlot(true));
+    slots.forEach(s => { s.isHammerSlot = w.hammerGameId ? (s.id === w.hammerGameId) : false; });
     adminDraftGames = slots; adminDraftGames._week = wk;
   }
   let html = '<div class="card"><label>Current week number</label>' +
@@ -674,10 +724,15 @@ function renderAdmin(){
       '<div class="row"><input placeholder="Away team" list="' + (g.isTiebreaker||g.league==='NFL'?'nfl-teams':'fbs-teams') + '" value="' + esc(g.away) + '" onchange="App.setSlotField(' + i + ',\'away\',this.value)">' +
       '<input placeholder="Home team" list="' + (g.isTiebreaker||g.league==='NFL'?'nfl-teams':'fbs-teams') + '" value="' + esc(g.home) + '" onchange="App.setSlotField(' + i + ',\'home\',this.value)"></div>' +
       '<label>Kickoff</label><input type="datetime-local" value="' + toLocalInputValue(g.kickoff) + '" onchange="App.setSlotField(' + i + ',\'kickoff\',this.value)">';
+    if (!g.isTiebreaker && hasNames){
+      html += '<button class="btn ' + (g.isHammerSlot?'btn-primary':'') + '" style="margin-top:8px;" onclick="App.toggleHammerSlot(' + i + ')">⚡ ' + (g.isHammerSlot?'This is the Hammer game':'Mark as Hammer game') + '</button>';
+    }
     if (hasNames){
       html += '<div class="row" style="margin-top:8px;">' +
         '<button class="pick-btn ' + (g.winner==='away'?'selected':'') + '" onclick="App.setResult(' + i + ',\'away\')">' + esc(g.away) + ' won</button>' +
-        '<button class="pick-btn ' + (g.winner==='home'?'selected':'') + '" onclick="App.setResult(' + i + ',\'home\')">' + esc(g.home) + ' won</button></div>';
+        '<button class="pick-btn ' + (g.winner==='home'?'selected':'') + '" onclick="App.setResult(' + i + ',\'home\')">' + esc(g.home) + ' won</button>' +
+        (!g.isTiebreaker ? '<button class="btn ' + (g.winner==='tie'?'btn-primary':'') + '" onclick="App.setResult(' + i + ',\'tie\')">Tie</button>' : '') +
+      '</div>';
       if (g.isTiebreaker){
         html += '<div class="row" style="margin-top:8px;">' +
           '<div><label>' + esc(g.away) + ' score</label><input type="number" value="' + (g.awayScore==null?'':g.awayScore) + '" onchange="App.setTbScore(' + i + ',\'away\',this.value)"></div>' +
@@ -689,6 +744,15 @@ function renderAdmin(){
   html += '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.saveWeek()">Save Week ' + esc(wk) + '</button></div>';
   html += '<div class="card"><div class="row" style="align-items:center;"><div><strong>Lock this week</strong><div class="muted">Auto-locks at first kickoff either way.</div></div>' +
     '<button class="btn" onclick="App.toggleLock()">' + (w.locked ? 'Unlock' : 'Force Lock') + '</button></div></div>';
+  html += '<div class="card"><h3 style="margin-top:0;">Payouts</h3>' +
+    '<div class="row"><div><label>Weekly 1st</label><input id="pay-w1" type="number" value="' + (STATE.meta.weekly1st??'') + '"></div>' +
+    '<div><label>Weekly 2nd</label><input id="pay-w2" type="number" value="' + (STATE.meta.weekly2nd??'') + '"></div>' +
+    '<div><label>Weekly 3rd</label><input id="pay-w3" type="number" value="' + (STATE.meta.weekly3rd??'') + '"></div></div>' +
+    '<div class="row" style="margin-top:8px;"><div><label>Season 1st</label><input id="pay-s1" type="number" value="' + (STATE.meta.season1st??'') + '"></div>' +
+    '<div><label>Season 2nd</label><input id="pay-s2" type="number" value="' + (STATE.meta.season2nd??'') + '"></div>' +
+    '<div><label>Season 3rd</label><input id="pay-s3" type="number" value="' + (STATE.meta.season3rd??'') + '"></div></div>' +
+    '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.savePayouts()">Save Payouts</button></div>';
+
   const players = Object.entries(STATE.players);
   html += '<div class="card"><h3 style="margin-top:0;">Players (' + players.length + ')</h3>';
   if (!players.length) html += '<div class="muted">No one has logged in yet.</div>';
@@ -752,7 +816,7 @@ const App = {
       if (!data.session){ alert('Check your email to confirm your account, then log in. (If you\'d rather skip email confirmation, turn that off in Supabase\u2019s Auth settings.)'); authMode='login'; render(); return; }
       const { error: profErr } = await sb.from('profiles').insert({ id: data.user.id, display_name: displayName });
       if (profErr) throw profErr;
-      session = { playerId: data.user.id, displayName, isAdmin: false };
+      session = { playerId: data.user.id, displayName, isAdmin: false, hammerUsed: false };
       await boot();
     } catch(e){ showError(e); btn.disabled=false; btn.textContent='Create Account'; }
   },
@@ -767,13 +831,19 @@ const App = {
       if (error) throw error;
       const { data: profile, error: profErr } = await sb.from('profiles').select('*').eq('id', data.user.id).single();
       if (profErr) throw profErr;
-      session = { playerId: data.user.id, displayName: profile.display_name, isAdmin: profile.is_admin };
+      session = { playerId: data.user.id, displayName: profile.display_name, isAdmin: profile.is_admin, hammerUsed: profile.hammer_used };
       await boot();
     } catch(e){ showError(e); btn.disabled=false; btn.textContent='Log In'; }
   },
   async logout(){ await sb.auth.signOut(); session = {}; view = 'login'; draft = null; render(); },
 
   setWinner(gameId, side){ if (!draft.gamePicks[gameId]) draft.gamePicks[gameId] = { winner: null, value: null }; draft.gamePicks[gameId].winner = side; if (draft.omitGameId === gameId) draft.omitGameId = null; render(); },
+  toggleHammerMode(){
+    hammerMode = !hammerMode;
+    draft.gamePicks = {}; draft.omitGameId = null;
+    render();
+  },
+  setHammerWinner(gameId, side){ draft.gamePicks = { [gameId]: { winner: side, value: 55 } }; render(); },
   setValue(gameId, val){ const v = val ? parseInt(val,10) : null; if (!draft.gamePicks[gameId]) draft.gamePicks[gameId] = { winner: null, value: null }; draft.gamePicks[gameId].value = v; render(); },
   toggleSkip(gameId){ draft.omitGameId = (draft.omitGameId === gameId) ? null : gameId; if (draft.omitGameId === gameId) delete draft.gamePicks[gameId]; render(); },
   setTbWinner(side){ draft.tiebreaker = draft.tiebreaker || {}; draft.tiebreaker.winner = side; render(); },
@@ -782,20 +852,37 @@ const App = {
   async submitPicks(){
     const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek; const w = getWeek(wk);
     const regular = w.games.filter(g => !g.isTiebreaker); const tb = w.games.find(g => g.isTiebreaker);
-    if (!draft.omitGameId){ alert('Pick one game to skip (you play 10 of the 11).'); return; }
-    const toScore = regular.filter(g => g.id !== draft.omitGameId);
-    for (const g of toScore){ const p = draft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: pick a winner and a confidence value for all games except your one skip.'); return; } }
-    const usedVals = toScore.map(g => draft.gamePicks[g.id].value).sort((a,b)=>a-b);
-    if (JSON.stringify(usedVals) !== JSON.stringify([1,2,3,4,5,6,7,8,9,10])){ alert('Each confidence value 1–10 must be used exactly once.'); return; }
-    if (tb && (!draft.tiebreaker || !draft.tiebreaker.winner || draft.tiebreaker.total == null || isNaN(draft.tiebreaker.total))){ alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return; }
+    if (hammerMode){
+      const hg = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
+      if (!hg){ alert('No hammer game is set for this week.'); return; }
+      const p = draft.gamePicks[hg.id];
+      if (!p || !p.winner){ alert('Pick a winner for the hammer game.'); return; }
+      if (tb && (!draft.tiebreaker || !draft.tiebreaker.winner || draft.tiebreaker.total == null || isNaN(draft.tiebreaker.total))){ alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return; }
+    } else {
+      if (!draft.omitGameId){ alert('Pick one game to skip (you play 10 of the 11).'); return; }
+      const toScore = regular.filter(g => g.id !== draft.omitGameId);
+      for (const g of toScore){ const p = draft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: pick a winner and a confidence value for all games except your one skip.'); return; } }
+      const usedVals = toScore.map(g => draft.gamePicks[g.id].value).sort((a,b)=>a-b);
+      if (JSON.stringify(usedVals) !== JSON.stringify([1,2,3,4,5,6,7,8,9,10])){ alert('Each confidence value 1–10 must be used exactly once.'); return; }
+      if (tb && (!draft.tiebreaker || !draft.tiebreaker.winner || draft.tiebreaker.total == null || isNaN(draft.tiebreaker.total))){ alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return; }
+    }
     try {
       const { error } = await sb.from('picks').upsert({
         week_number: wk, player_id: session.playerId, display_name: session.displayName,
-        game_picks: draft.gamePicks, omit_game_id: draft.omitGameId,
+        game_picks: draft.gamePicks, omit_game_id: hammerMode ? null : draft.omitGameId,
         tiebreaker: draft.tiebreaker ? { winner: draft.tiebreaker.winner, total: draft.tiebreaker.total } : null,
-        submitted_at: new Date().toISOString()
+        submitted_at: new Date().toISOString(),
+        is_hammer: hammerMode, is_insurance: false
       });
       if (error) throw error;
+      const wasHammerThisWeek = !!(STATE.picks[pickDocId(wk, session.playerId)] && STATE.picks[pickDocId(wk, session.playerId)].isHammer);
+      if (hammerMode && !session.hammerUsed){
+        await sb.from('profiles').update({ hammer_used: true }).eq('id', session.playerId);
+        session.hammerUsed = true;
+      } else if (!hammerMode && wasHammerThisWeek){
+        await sb.from('profiles').update({ hammer_used: false }).eq('id', session.playerId);
+        session.hammerUsed = false;
+      }
       await loadOwnPick(wk, session.playerId);
       render();
     } catch(e){ showError(e); }
@@ -875,6 +962,22 @@ const App = {
   },
   setResult(i, side){ adminDraftGames[i].winner = side; render(); },
   setTbScore(i, side, val){ const n = val === '' ? null : parseInt(val,10); if (side === 'away') adminDraftGames[i].awayScore = n; else adminDraftGames[i].homeScore = n; },
+  async savePayouts(){
+    const val = id => { const v = document.getElementById(id).value; return v === '' ? null : parseFloat(v); };
+    try {
+      await sb.from('pool_config').update({
+        weekly_1st: val('pay-w1'), weekly_2nd: val('pay-w2'), weekly_3rd: val('pay-w3'),
+        season_1st: val('pay-s1'), season_2nd: val('pay-s2'), season_3rd: val('pay-s3')
+      }).eq('id', 1);
+      await loadConfig(); render();
+    } catch(e){ showError(e); }
+  },
+  toggleHammerSlot(i){
+    const willBeOn = !adminDraftGames[i].isHammerSlot;
+    adminDraftGames.forEach(s => { s.isHammerSlot = false; });
+    adminDraftGames[i].isHammerSlot = willBeOn;
+    render();
+  },
   async saveWeek(){
     const wk = STATE.meta.currentWeek;
     const filled = adminDraftGames.filter(g => g.away.trim() && g.home.trim());
@@ -890,6 +993,8 @@ const App = {
       if (removeIds.length) await sb.from('games').delete().in('id', removeIds);
       const rows = filled.map(g => ({ id: g.id, week_number: wk, league: g.league, away: g.away, home: g.home, kickoff: g.kickoff, is_tiebreaker: g.isTiebreaker, winner: g.winner, away_score: g.awayScore, home_score: g.homeScore }));
       if (rows.length){ const { error } = await sb.from('games').upsert(rows); if (error) throw error; }
+      const hammerSlot = filled.find(g => g.isHammerSlot && !g.isTiebreaker);
+      await sb.from('weeks').update({ hammer_game_id: hammerSlot ? hammerSlot.id : null }).eq('week_number', wk);
       await loadWeekGames(wk); adminDraftGames = null; render();
     } catch(e){ showError(e); }
   },
@@ -922,7 +1027,7 @@ async function boot(){
     const { data: { session: authSession } } = await sb.auth.getSession();
     if (authSession && authSession.user){
       const { data: profile } = await sb.from('profiles').select('*').eq('id', authSession.user.id).maybeSingle();
-      if (profile) session = { playerId: authSession.user.id, displayName: profile.display_name, isAdmin: profile.is_admin };
+      if (profile) session = { playerId: authSession.user.id, displayName: profile.display_name, isAdmin: profile.is_admin, hammerUsed: profile.hammer_used };
     }
     await loadConfig();
     await loadWeekGames(STATE.meta.currentWeek);
