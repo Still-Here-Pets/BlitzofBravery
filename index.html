@@ -239,11 +239,12 @@
     opacity: 0.85;
   }
   .pts-badge { font-size: 18px; padding: 4px 10px; font-weight: 800; }
+  .badge.missed { background: rgba(210,38,48,0.18); color: var(--brick); }
   .team-tags { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
   .win-tag { font-size: 10px; font-weight: 800; color: #4CE08A; text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(76,224,138,0.6); }
   .pick-tag { font-size: 10px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(255,214,10,0.5); }
   .scorecard-foot {
-    padding: 8px 14px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3);
+    padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3);
     font-size: 12px; color: rgba(255,255,255,0.7); display: flex; justify-content: space-between; align-items: center; gap: 8px;
   }
   .scorecard-foot .badge.gold { background: var(--gold); color: #201800; }
@@ -616,8 +617,8 @@ function renderScorecard(g, pickWinner, isSkipped, footHtml){
   const bulbs = '<div class="scorecard-bulbs">' + '<span></span>'.repeat(9) + '</div>';
   return '<div class="scorecard">' + bulbs +
     '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span><span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
-    '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
     (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
+    '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
   '</div>';
 }
 function renderPicks(){
@@ -697,7 +698,7 @@ function renderPicks(){
 
   return html;
 }
-function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge">Missed</span>'; }
+function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge missed">Missed</span>'; }
 function teamBtn(g, side, selected, disabled, isTb, isHammer){
   const name = side === 'away' ? g.away : g.home;
   const fn = isTb ? "App.setTbWinner('" + side + "')" : (isHammer ? "App.setHammerWinner('" + g.id + "','" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')");
