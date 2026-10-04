@@ -78,7 +78,7 @@ module.exports = async (req, res) => {
       // Live or completed: push current scores into any matching real game in the pool.
       // Winner is only set once the game is actually final, so grading stays accurate,
       // but the score numbers update live for the Picks screen throughout the game.
-      const winner = g.completed ? (g.awayScore > g.homeScore ? 'away' : (g.homeScore > g.awayScore ? 'home' : null)) : null;
+      const winner = g.completed ? (g.awayScore > g.homeScore ? 'away' : (g.homeScore > g.awayScore ? 'home' : 'tie')) : null;
       const { data: matches, error } = await sb.from('games')
         .select('id, winner')
         .eq('away', g.away).eq('home', g.home);
@@ -94,8 +94,87 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Insurance: for any locked week where a registered player never submitted picks,
+    // auto-fill using the current leader's exact team picks with confidence values
+    // reversed (leader's 10 becomes 1, etc.). Idempotent — only inserts where no
+    // pick row exists yet, so safe to run on every sync.
+    const insuranceResults = await applyInsurance(sb);
+    results.insuranceApplied = insuranceResults.length;
+    if (insuranceResults.length) results.insuranceFor = insuranceResults;
+
     res.status(200).json({ ok: true, ...results });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message, ...results });
   }
 };
+
+async function applyInsurance(sb) {
+  const applied = [];
+  const { data: weeks } = await sb.from('weeks').select('*');
+  const { data: profiles } = await sb.from('profiles').select('id, display_name');
+  const { data: allGames } = await sb.from('games').select('*');
+  const { data: allPicks } = await sb.from('picks').select('*');
+  if (!weeks || !profiles || !allGames || !allPicks) return applied;
+
+  const gamesByWeek = {};
+  allGames.forEach(g => { (gamesByWeek[g.week_number] ||= []).push(g); });
+  const picksByWeekPlayer = {};
+  allPicks.forEach(p => { picksByWeekPlayer[p.week_number + '__' + p.player_id] = p; });
+
+  function isLocked(w) {
+    if (w.locked) return true;
+    const games = gamesByWeek[w.week_number] || [];
+    const kicks = games.map(g => g.kickoff).filter(Boolean).map(k => new Date(k).getTime());
+    if (!kicks.length) return false;
+    return Date.now() >= Math.min(...kicks);
+  }
+  function weeklyScoreFor(weekNum, playerId) {
+    const games = gamesByWeek[weekNum] || [];
+    const p = picksByWeekPlayer[weekNum + '__' + playerId];
+    if (!p) return 0;
+    let score = 0;
+    for (const g of games) {
+      if (g.is_tiebreaker) continue;
+      const pick = (p.game_picks || {})[g.id];
+      if (!pick || !g.winner || g.winner === 'tie') continue;
+      if (pick.winner === g.winner) score += pick.value;
+    }
+    return score;
+  }
+
+  for (const w of weeks) {
+    if (!isLocked(w)) continue;
+    const games = gamesByWeek[w.week_number] || [];
+    if (!games.length) continue;
+
+    const missing = profiles.filter(pr => !picksByWeekPlayer[w.week_number + '__' + pr.id]);
+    if (!missing.length) continue;
+
+    // Leader = highest season total using weeks strictly before this one
+    const priorWeeks = weeks.filter(ww => ww.week_number < w.week_number);
+    let leaderId = null, leaderTotal = -1;
+    for (const pr of profiles) {
+      const total = priorWeeks.reduce((sum, ww) => sum + weeklyScoreFor(ww.week_number, pr.id), 0);
+      if (total > leaderTotal) { leaderTotal = total; leaderId = pr.id; }
+    }
+    if (!leaderId) continue;
+    const leaderPick = picksByWeekPlayer[w.week_number + '__' + leaderId];
+    if (!leaderPick || leaderPick.is_hammer) continue; // can't mirror a hammer week sensibly
+
+    const reversedGamePicks = {};
+    for (const [gid, pick] of Object.entries(leaderPick.game_picks || {})) {
+      reversedGamePicks[gid] = { winner: pick.winner, value: pick.value != null ? (11 - pick.value) : null };
+    }
+
+    for (const pr of missing) {
+      await sb.from('picks').insert({
+        week_number: w.week_number, player_id: pr.id, display_name: pr.display_name,
+        game_picks: reversedGamePicks, omit_game_id: leaderPick.omit_game_id,
+        tiebreaker: leaderPick.tiebreaker, submitted_at: new Date().toISOString(),
+        is_hammer: false, is_insurance: true
+      });
+      applied.push(pr.display_name + ' (week ' + w.week_number + ')');
+    }
+  }
+  return applied;
+}
