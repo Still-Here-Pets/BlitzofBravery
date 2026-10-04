@@ -38,20 +38,15 @@
     line-height: 1.45;
     scroll-padding-top: env(safe-area-inset-top, 0px);
     background:
-      repeating-linear-gradient(90deg,
-        rgba(255,255,255,0.85) 0 2px, transparent 2px 1%,
-        rgba(255,255,255,0.22) 1% calc(1% + 1px), transparent calc(1% + 1px) 2%,
-        rgba(255,255,255,0.22) 2% calc(2% + 1px), transparent calc(2% + 1px) 3%,
-        rgba(255,255,255,0.22) 3% calc(3% + 1px), transparent calc(3% + 1px) 4%,
-        rgba(255,255,255,0.22) 4% calc(4% + 1px), transparent calc(4% + 1px) 5%,
-        rgba(255,255,255,0.45) 5% calc(5% + 1px), transparent calc(5% + 1px) 6%,
-        rgba(255,255,255,0.22) 6% calc(6% + 1px), transparent calc(6% + 1px) 7%,
-        rgba(255,255,255,0.22) 7% calc(7% + 1px), transparent calc(7% + 1px) 8%,
-        rgba(255,255,255,0.22) 8% calc(8% + 1px), transparent calc(8% + 1px) 9%,
-        rgba(255,255,255,0.22) 9% calc(9% + 1px), transparent calc(9% + 1px) 10%
-      ),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.9) 0 2px, transparent 2px 5%),
       repeating-linear-gradient(90deg, color-mix(in srgb, var(--turf) 92%, white) 0 10%, color-mix(in srgb, var(--turf) 76%, black) 10% 20%);
     background-attachment: fixed;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image: repeating-linear-gradient(90deg, rgba(255,255,255,0.55) 0 1.5px, transparent 1.5px 10%);
+    -webkit-mask-image: repeating-linear-gradient(180deg, transparent 0 70px, black 70px 90px, transparent 90px 260px, black 260px 280px, transparent 280px 420px);
+    mask-image: repeating-linear-gradient(180deg, transparent 0 70px, black 70px 90px, transparent 90px 260px, black 260px 280px, transparent 280px 420px);
   }
   h1, h2, h3, .num { font-family: "Bebas Neue", "Arial Narrow", sans-serif; letter-spacing: 0.03em; font-weight: 400; }
   #app { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; padding: 0 0 48px; min-height: 100%; background: var(--bg); }
@@ -65,6 +60,35 @@
   }
   .yard-bar.top { top: 0; } .yard-bar.bottom { bottom: 0; }
   @media (max-width: 760px) { .yard-bar { display: none; } }
+  .endzone-side {
+    position: fixed; top: 0; bottom: 0; width: 70px; z-index: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .endzone-side.left {
+    left: 0; border-right: 4px solid #F4F4F0;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
+      repeating-linear-gradient(125deg, rgba(255,255,255,0.10) 0 3px, transparent 3px 9px),
+      linear-gradient(180deg, #FFE27A 0%, #F2B705 30%, #C9890A 62%, #8A5A0B 100%);
+  }
+  .endzone-side.right {
+    right: 0; border-left: 4px solid #F4F4F0;
+    background: radial-gradient(circle at 50% -20%, rgba(255,255,255,0.08), transparent 55%), linear-gradient(180deg, #16211A 0%, #0A100B 100%);
+  }
+  .endzone-text { writing-mode: vertical-rl; font-size: 24px; letter-spacing: 0.12em; }
+  .endzone-text.gold {
+    transform: rotate(180deg);
+    background: linear-gradient(90deg, #ffffff 0%, #e4f4ff 30%, #9fd3f5 50%, #ffffff 72%, #cfeaff 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
+  }
+  .endzone-text.dark {
+    color: #FFD60A;
+    text-shadow: 0 0 6px rgba(255,214,10,0.85), 0 0 18px rgba(255,214,10,0.55), 0 0 38px rgba(255,214,10,0.22);
+  }
+  @media (max-width: 900px) { .endzone-side { display: none; } }
   .topbar {
     background:
       linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
@@ -220,6 +244,8 @@
 <body>
 <div class="yard-bar top" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
 <div class="yard-bar bottom" aria-hidden="true"><span>G</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>40</span><span>30</span><span>20</span><span>10</span><span>G</span></div>
+<div class="endzone-side left" aria-hidden="true"><span class="endzone-text gold">THE BLITZ</span></div>
+<div class="endzone-side right" aria-hidden="true"><span class="endzone-text dark">THE BLITZ</span></div>
 <div id="app"><div class="empty">Loading…</div></div>
 
 <script>
