@@ -131,6 +131,10 @@
   .pw-wrap input { padding-right: 56px; }
   .pw-toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
   .pw-toggle:hover { color: var(--ink); }
+  #loadbar { position: fixed; top: 0; left: 0; height: 3px; width: 0%; background: var(--gold); z-index: 1000; transition: width 0.2s ease, opacity 0.3s ease; opacity: 0; pointer-events: none; }
+  #loadbar.active { width: 70%; opacity: 1; transition: width 8s cubic-bezier(0.1,0.8,0.9,1), opacity 0.2s ease; }
+  #toast-host { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+  .toast { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--ink); padding: 10px 16px; border-radius: 8px; box-shadow: 0 4px 16px var(--shadow); font-size: 14px; max-width: 90vw; }
   .muted { color: var(--muted); font-size: 13px; }
   .btn { font: inherit; font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--ink); cursor: pointer; }
   .btn:active { transform: translateY(1px); }
@@ -255,6 +259,8 @@
 </style>
 </head>
 <body>
+<div id="loadbar"></div>
+<div id="toast-host"></div>
 <div class="page-flex">
   <div class="endzone-side left" aria-hidden="true"><span class="endzone-text gold">THE BLITZ</span></div>
   <div class="field-col">
@@ -287,7 +293,10 @@ let scheduleSelected = {};
 const TOTAL_WEEKS = 15;
 let picksViewWeek = null;
 let boardViewWeek = null;
+let editingMessageId = null;
+const BOARD_MAX_LEN = 1000;
 let standingsViewWeek = null;
+let standingsSearch = '';
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
 
@@ -374,7 +383,7 @@ async function loadAllWeeksAndPicks(){
 async function loadBoardMessages(wk){
   const { data, error } = await sb.from('messages').select('*').eq('week_number', wk).order('created_at', { ascending: false });
   if (error) throw error;
-  STATE.messages[wk] = (data||[]).map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at }));
+  STATE.messages[wk] = (data||[]).map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at, editedAt: m.edited_at }));
 }
 async function loadOwnPick(wk, playerId){
   const { data } = await sb.from('picks').select('*').eq('week_number', wk).eq('player_id', playerId).maybeSingle();
@@ -391,12 +400,40 @@ async function loadScheduleCache(){
 }
 
 function showError(e){ alert('Something went wrong: ' + (e && e.message ? e.message : e)); }
+let loadingDepth = 0;
+function setLoading(on){
+  loadingDepth = Math.max(0, loadingDepth + (on ? 1 : -1));
+  const el = document.getElementById('loadbar');
+  if (!el) return;
+  if (loadingDepth > 0) el.classList.add('active');
+  else el.classList.remove('active');
+}
+function showToast(msg){
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
 
 // ---------- rendering ----------
 function render(){
+  const active = document.activeElement;
+  const focusId = (active && active.id) ? active.id : null;
+  const selStart = (focusId && 'selectionStart' in active) ? active.selectionStart : null;
+  const selEnd = (focusId && 'selectionEnd' in active) ? active.selectionEnd : null;
+  function restoreFocus(){
+    if (!focusId) return;
+    const el = document.getElementById(focusId);
+    if (!el) return;
+    el.focus();
+    if (selStart != null && 'setSelectionRange' in el){ try { el.setSelectionRange(selStart, selEnd); } catch(e){} }
+  }
   const app = document.getElementById('app');
-  if (view === 'login') { app.innerHTML = renderLogin(); return; }
-  if (view === 'resetPassword') { app.innerHTML = renderResetPassword(); return; }
+  if (view === 'login') { app.innerHTML = renderLogin(); restoreFocus(); return; }
+  if (view === 'resetPassword') { app.innerHTML = renderResetPassword(); restoreFocus(); return; }
   const topbar = renderTopbar();
   const tabs = renderTabs();
   let body = '';
@@ -408,6 +445,7 @@ function render(){
   app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
     '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>' +
     renderClaimModal();
+  restoreFocus();
 }
 function renderClaimModal(){
   if (!claimModal) return '';
@@ -502,16 +540,28 @@ function renderBoard(){
   const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
   let html = '<label>Viewing</label><select onchange="App.setBoardWeek(this.value)">' + weekOptions(wk) + '</select>';
   html += '<div class="card" style="margin-top:14px;">' +
-    '<textarea id="board-compose" rows="3" placeholder="Say something about Week ' + esc(wk) + '…" style="width:100%;resize:vertical;"></textarea>' +
-    '<button class="btn btn-primary" style="margin-top:8px;" onclick="App.postMessage()">Post</button>' +
+    '<textarea id="board-compose" rows="3" maxlength="' + BOARD_MAX_LEN + '" placeholder="Say something about Week ' + esc(wk) + '…" style="width:100%;resize:vertical;" oninput="document.getElementById(\'board-counter\').textContent = this.value.length + \'/' + BOARD_MAX_LEN + '\'"></textarea>' +
+    '<div class="muted" id="board-counter" style="text-align:right;font-size:12px;">0/' + BOARD_MAX_LEN + '</div>' +
+    '<button class="btn btn-primary" style="margin-top:4px;" onclick="App.postMessage()">Post</button>' +
   '</div>';
   const msgs = STATE.messages[wk] || [];
   if (!msgs.length) html += '<div class="empty">No messages yet for Week ' + esc(wk) + '. Be the first to say something.</div>';
   else msgs.forEach(m => {
-    html += '<div class="card" style="margin-bottom:10px;">' +
-      '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong> <span class="muted">' + timeAgo(m.createdAt) + '</span></div>' +
-      (m.playerId === session.playerId ? '<button class="btn" style="flex:0 0 auto;" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button>' : '') +
-      '</div><div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div></div>';
+    const mine = m.playerId === session.playerId;
+    if (editingMessageId === m.id){
+      html += '<div class="card" style="margin-bottom:10px;">' +
+        '<div><strong>' + esc(m.displayName) + '</strong></div>' +
+        '<textarea id="board-edit-' + m.id + '" rows="3" maxlength="' + BOARD_MAX_LEN + '" style="width:100%;resize:vertical;margin-top:6px;">' + esc(m.body) + '</textarea>' +
+        '<div class="row" style="margin-top:8px;">' +
+          '<button class="btn btn-primary" onclick="App.saveEdit(\'' + m.id + '\')">Save</button>' +
+          '<button class="btn" onclick="App.cancelEdit()">Cancel</button>' +
+        '</div></div>';
+    } else {
+      html += '<div class="card" style="margin-bottom:10px;">' +
+        '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong> <span class="muted">' + timeAgo(m.createdAt) + (m.editedAt ? ' (edited)' : '') + '</span></div>' +
+        (mine ? '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.startEdit(\'' + m.id + '\')">Edit</button><button class="btn" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button></div>' : '') +
+        '</div><div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div></div>';
+    }
   });
   return html;
 }
@@ -699,10 +749,13 @@ function computeMoneyTotals(){
   return totals;
 }
 function renderStandings(){
-  const players = Object.keys(STATE.players);
-  if (!players.length) return '<div class="empty">No players yet.</div>';
+  const allPlayers = Object.keys(STATE.players);
+  if (!allPlayers.length) return '<div class="empty">No players yet.</div>';
+  const q = standingsSearch.trim().toLowerCase();
+  const players = q ? allPlayers.filter(pid => STATE.players[pid].displayName.toLowerCase().includes(q)) : allPlayers;
   const wk = standingsViewWeek != null ? standingsViewWeek : STATE.meta.currentWeek;
-  let html = '<label>Viewing</label><select onchange="App.setStandingsWeek(this.value)">' + weekOptions(wk) + '</select>';
+  let html = (allPlayers.length > 10 ? '<label>Search players</label><input id="standings-search" placeholder="Find a name…" value="' + esc(standingsSearch) + '" oninput="App.setStandingsSearch(this.value)" style="margin-bottom:12px;">' : '');
+  html += '<label>Viewing</label><select onchange="App.setStandingsWeek(this.value)">' + weekOptions(wk) + '</select>';
   html += '<h3 style="margin:12px 0 8px;">Week ' + esc(wk) + ' Leaderboard</h3>';
   const w = getWeek(wk);
   const tb = w ? w.games.find(g => g.isTiebreaker) : null;
@@ -739,8 +792,8 @@ function renderStandings(){
   }
 
   html += '<hr class="divider">';
-  html += renderSurvivorBoard(1, '1-Point Survivor');
-  html += renderSurvivorBoard(10, '10-Point Survivor');
+  html += renderSurvivorBoard(1, '1-Point Survivor', players);
+  html += renderSurvivorBoard(10, '10-Point Survivor', players);
   return html;
 }
 function survivorStatus(playerId, pointValue){
@@ -762,8 +815,8 @@ function survivorStatus(playerId, pointValue){
   }
   return { alive:true };
 }
-function renderSurvivorBoard(pointValue, title){
-  const players = Object.keys(STATE.players);
+function renderSurvivorBoard(pointValue, title, playerIds){
+  const players = playerIds || Object.keys(STATE.players);
   const results = players.map(pid => ({ pid, name: STATE.players[pid].displayName, status: survivorStatus(pid, pointValue) }));
   const alive = results.filter(r => r.status.alive);
   const out = results.filter(r => !r.status.alive).sort((a,b) => b.status.eliminatedWeek - a.status.eliminatedWeek);
@@ -935,6 +988,7 @@ const App = {
   setScheduleFilter(v){ scheduleFilter = v; render(); },
   setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
   setStandingsWeek(v){ standingsViewWeek = parseInt(v,10); render(); },
+  setStandingsSearch(v){ standingsSearch = v; render(); },
   async setBoardWeek(v){
     const n = parseInt(v, 10);
     boardViewWeek = n;
@@ -943,7 +997,7 @@ const App = {
   async postMessage(){
     const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
     const el = document.getElementById('board-compose');
-    const body = (el.value || '').trim();
+    const body = (el.value || '').trim().slice(0, BOARD_MAX_LEN);
     if (!body) return;
     try {
       const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body });
@@ -959,6 +1013,21 @@ const App = {
     try {
       const { error } = await sb.from('messages').delete().eq('id', id);
       if (error) throw error;
+      await loadBoardMessages(wk);
+      render();
+    } catch(e){ showError(e); }
+  },
+  startEdit(id){ editingMessageId = id; render(); },
+  cancelEdit(){ editingMessageId = null; render(); },
+  async saveEdit(id){
+    const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
+    const el = document.getElementById('board-edit-' + id);
+    const body = (el.value || '').trim().slice(0, BOARD_MAX_LEN);
+    if (!body) return;
+    try {
+      const { error } = await sb.from('messages').update({ body, edited_at: new Date().toISOString() }).eq('id', id);
+      if (error) throw error;
+      editingMessageId = null;
       await loadBoardMessages(wk);
       render();
     } catch(e){ showError(e); }
@@ -1288,7 +1357,20 @@ const App = {
     catch(e){ showError(e); }
   }
 };
-window.App = App;
+window.App = new Proxy(App, {
+  get(target, prop){
+    const val = target[prop];
+    if (typeof val !== 'function') return val;
+    return function(...args){
+      const result = val.apply(target, args);
+      if (result && typeof result.then === 'function'){
+        setLoading(true);
+        return result.finally(() => setLoading(false));
+      }
+      return result;
+    };
+  }
+});
 
 function injectTeamDatalists(){
   if (document.getElementById('nfl-teams')) return;
@@ -1301,6 +1383,7 @@ function injectTeamDatalists(){
 
 // ---------- boot ----------
 async function boot(){
+  setLoading(true);
   try {
     injectTeamDatalists();
     const { data: { session: authSession } } = await sb.auth.getSession();
@@ -1308,13 +1391,13 @@ async function boot(){
       const { data: profile } = await sb.from('profiles').select('*').eq('id', authSession.user.id).maybeSingle();
       if (profile) session = { playerId: authSession.user.id, displayName: profile.display_name, isAdmin: profile.is_admin, hammerUsed: profile.hammer_used };
     }
-    try { await fetch('/api/refresh-scores'); } catch(e) { /* best-effort; stale data beats a broken page */ }
+    try { await fetch('/api/refresh-scores'); } catch(e) { showToast('Couldn\'t reach live scores — showing the last saved results.'); }
     await loadConfig();
     await loadWeekGames(STATE.meta.currentWeek);
     if (session.playerId) await loadOwnPick(STATE.meta.currentWeek, session.playerId);
     view = session.playerId ? 'picks' : 'login';
     render();
-  } catch(e){ showError(e); }
+  } catch(e){ showError(e); } finally { setLoading(false); }
 }
 boot();
 })();
