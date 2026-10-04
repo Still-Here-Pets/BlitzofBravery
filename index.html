@@ -224,61 +224,55 @@
     border: 3px solid var(--gold);
     box-shadow: 0 6px 16px rgba(0,0,0,0.5), inset 0 0 22px rgba(0,0,0,0.5);
   }
-  .scorecard-bulbs { display: flex; justify-content: space-evenly; padding: 0 14px 7px; }
-  .scorecard-bulbs span {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #FFF6D8, var(--gold) 70%);
-    box-shadow: 0 0 5px 1px rgba(255, 214, 10, 0.85);
-  }
   .scorecard-head {
-    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 6px 14px 4px; gap: 8px;
-    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
-    color: rgba(255,255,255,0.5);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 8px 16px 6px; gap: 8px;
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
+    color: rgba(255,255,255,0.55);
   }
   .scorecard-head > span:last-child { justify-self: end; }
-  .scorecard-live { justify-self: center; color: #FFD60A; font-size: 11px; white-space: nowrap; }
+  .scorecard-live { justify-self: center; color: #FFD60A; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; text-transform: none; white-space: nowrap; }
   .status-pill {
-    font-family: "Bebas Neue", sans-serif; font-size: 13px; letter-spacing: 0.06em;
-    padding: 2px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.18);
-    background: rgba(0,0,0,0.4);
+    font-family: "Bebas Neue", sans-serif; font-size: 15px; letter-spacing: 0.05em;
+    padding: 2px 13px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(0,0,0,0.45);
   }
-  .status-pill.live { color: #FFD60A; text-shadow: 0 0 6px rgba(255,214,10,0.9), 0 0 16px rgba(255,214,10,0.55); }
-  .status-pill.final { color: #4CE08A; text-shadow: 0 0 6px rgba(76,224,138,0.9), 0 0 16px rgba(76,224,138,0.5); }
+  .status-pill.live { color: #FFD60A; text-shadow: 0 0 2px rgba(255,214,10,0.85); }
+  .status-pill.final { color: #4CE08A; text-shadow: 0 0 2px rgba(76,224,138,0.85); }
   .status-pill.scheduled { color: rgba(255,255,255,0.65); text-shadow: none; }
   .matchup { display: flex; }
-  .team-box { flex: 1; padding: 10px 8px 18px; text-align: center; position: relative; }
-  .team-box + .team-box { border-left: 1px solid rgba(255,255,255,0.1); }
-  .team-box.picked { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 16px rgba(255,214,10,0.3); border-radius: 8px; }
+  .team-box { flex: 1; padding: 12px 8px 20px; text-align: center; position: relative; }
+  .team-box + .team-box { border-left: 1px solid rgba(255,255,255,0.12); }
+  .team-box.picked { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 14px rgba(255,214,10,0.25); border-radius: 8px; }
   .team-name {
-    color: #F4F4F2; font-weight: 800; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase;
-    margin-bottom: 8px; min-height: 2.3em; display: flex; align-items: center; justify-content: center;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    color: #FAFAF8; font-weight: 800; font-size: 14px; letter-spacing: 0.02em; text-transform: uppercase;
+    margin-bottom: 10px; min-height: 2.2em; display: flex; align-items: center; justify-content: center;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.7);
   }
   .team-score {
-    font-family: "Bebas Neue", sans-serif; font-size: 62px; line-height: 1; letter-spacing: 0.02em;
+    font-family: "Bebas Neue", sans-serif; font-size: 74px; line-height: 1; letter-spacing: 0.01em;
     color: #FFD60A;
-    text-shadow: 0 0 6px rgba(255,214,10,0.85), 0 0 18px rgba(255,214,10,0.55), 0 0 38px rgba(255,214,10,0.22);
+    text-shadow: 0 0 3px rgba(255,214,10,0.95), 0 0 9px rgba(255,214,10,0.5);
   }
   .team-box.winner .team-score {
     color: #4CE08A;
-    text-shadow: 0 0 6px rgba(76,224,138,0.9), 0 0 18px rgba(76,224,138,0.6), 0 0 38px rgba(76,224,138,0.28);
+    text-shadow: 0 0 3px rgba(76,224,138,0.95), 0 0 9px rgba(76,224,138,0.55);
   }
   .team-box.loser .team-score {
     color: var(--brick);
-    text-shadow: 0 0 6px rgba(210,38,48,0.75), 0 0 18px rgba(210,38,48,0.45), 0 0 38px rgba(210,38,48,0.2);
-    opacity: 0.85;
+    text-shadow: 0 0 3px rgba(210,38,48,0.85), 0 0 9px rgba(210,38,48,0.45);
+    opacity: 0.9;
   }
-  .pts-badge { font-size: 18px; padding: 4px 10px; font-weight: 800; }
-  .badge.missed { background: rgba(210,38,48,0.18); color: var(--brick); }
-  .team-tags { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
-  .win-tag { font-size: 10px; font-weight: 800; color: #4CE08A; text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(76,224,138,0.6); }
-  .pick-tag { font-size: 10px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(255,214,10,0.5); }
+  .pts-badge { font-size: 22px; padding: 4px 12px; font-weight: 800; }
+  .badge.missed { background: rgba(210,38,48,0.22); color: #FF6672; font-size: 13px; }
+  .team-tags { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
+  .win-tag { font-size: 12px; font-weight: 800; color: #4CE08A; text-transform: uppercase; letter-spacing: 0.04em; text-shadow: 0 0 3px rgba(76,224,138,0.55); }
+  .pick-tag { font-size: 12px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.04em; text-shadow: 0 0 3px rgba(255,214,10,0.45); }
   .scorecard-foot {
-    padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3);
-    font-size: 12px; color: rgba(255,255,255,0.7); display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.12); background: rgba(0,0,0,0.3);
+    font-size: 13px; color: rgba(255,255,255,0.7); display: flex; justify-content: space-between; align-items: center; gap: 8px;
   }
   .scorecard-foot .badge.gold { background: var(--gold); color: #201800; }
-  .scorecard-foot .badge.good { background: #4CE08A; color: #06130c; }
+  .scorecard-foot .badge.good { background: #4CE08A; color: #06130c; font-size: 13px; }
 
   .points-summary {
     margin-top: 14px; padding: 16px; border-radius: 14px; text-align: center;
@@ -660,14 +654,12 @@ function renderScorecard(g, pickWinner, isSkipped, footHtml){
       (tags ? '<div class="team-tags">' + tags + '</div>' : '') +
     '</div>';
   }
-  const bulbs = '<div class="scorecard-bulbs">' + '<span></span>'.repeat(9) + '</div>';
   return '<div class="scorecard">' +
     (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
     '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
     '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span>' +
       '<span class="scorecard-live">' + (statusClass==='live' && g.liveStatus ? esc(g.liveStatus) : '') + '</span>' +
       '<span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
-    bulbs +
   '</div>';
 }
 function renderPicks(){
