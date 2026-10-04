@@ -196,7 +196,7 @@
     border: 3px solid var(--gold);
     box-shadow: 0 6px 16px rgba(0,0,0,0.5), inset 0 0 22px rgba(0,0,0,0.5);
   }
-  .scorecard-bulbs { display: flex; justify-content: space-evenly; padding: 7px 14px 0; }
+  .scorecard-bulbs { display: flex; justify-content: space-evenly; padding: 0 14px 7px; }
   .scorecard-bulbs span {
     width: 6px; height: 6px; border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #FFF6D8, var(--gold) 70%);
@@ -615,10 +615,11 @@ function renderScorecard(g, pickWinner, isSkipped, footHtml){
     '</div>';
   }
   const bulbs = '<div class="scorecard-bulbs">' + '<span></span>'.repeat(9) + '</div>';
-  return '<div class="scorecard">' + bulbs +
-    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span><span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
+  return '<div class="scorecard">' +
     (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
     '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
+    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span><span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
+    bulbs +
   '</div>';
 }
 function renderPicks(){
