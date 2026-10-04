@@ -520,7 +520,7 @@ function renderStandings(){
   return html;
 }
 function survivorStatus(playerId, pointValue){
-  const weeks = allWeekNumbers();
+  const weeks = Object.keys(STATE.weeks).map(Number).sort((a,b)=>a-b);
   for (const n of weeks){
     const w = getWeek(n);
     if (!w || !w.games || !w.games.length) continue;
