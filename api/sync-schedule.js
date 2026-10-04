@@ -33,7 +33,8 @@ function parseEvents(json, league) {
       started: !!(comp.status && comp.status.type && comp.status.type.state !== 'pre'),
       spread: odds ? (odds.details || null) : null,
       overUnder: odds ? (odds.overUnder || null) : null,
-      records: (awayRecord || homeRecord) ? (away.team.displayName + ' ' + (awayRecord||'?') + ', ' + home.team.displayName + ' ' + (homeRecord||'?')) : null
+      records: (awayRecord || homeRecord) ? (away.team.displayName + ' ' + (awayRecord||'?') + ', ' + home.team.displayName + ' ' + (homeRecord||'?')) : null,
+      liveDetail: (comp.status && comp.status.type && comp.status.type.shortDetail) || null
     };
   }).filter(Boolean);
 }
@@ -94,7 +95,7 @@ module.exports = async (req, res) => {
       if (matches.length && g.started) {
         for (const m of matches) {
           if (m.winner) continue; // already graded, don't touch
-          const update = { away_score: g.awayScore, home_score: g.homeScore };
+          const update = { away_score: g.awayScore, home_score: g.homeScore, live_status: winner ? null : g.liveDetail };
           if (winner) update.winner = winner;
           await sb.from('games').update(update).eq('id', m.id);
           if (winner) results.graded++;

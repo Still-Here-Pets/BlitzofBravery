@@ -26,7 +26,8 @@ function parseEvents(json, league) {
       homeScore: home.score != null ? parseInt(home.score, 10) : null,
       kickoff: comp.date,
       completed: !!(comp.status && comp.status.type && comp.status.type.completed),
-      started: !!(comp.status && comp.status.type && comp.status.type.state !== 'pre')
+      started: !!(comp.status && comp.status.type && comp.status.type.state !== 'pre'),
+      liveDetail: (comp.status && comp.status.type && comp.status.type.shortDetail) || null
     };
   }).filter(Boolean);
 }
@@ -55,7 +56,7 @@ module.exports = async (req, res) => {
       });
       for (const m of matches) {
         if (m.winner) continue; // already graded, don't touch
-        const update = { away_score: g.awayScore, home_score: g.homeScore };
+        const update = { away_score: g.awayScore, home_score: g.homeScore, live_status: winner ? null : g.liveDetail };
         if (winner) update.winner = winner;
         await sb.from('games').update(update).eq('id', m.id);
         results.updated++;
