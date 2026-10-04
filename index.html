@@ -275,6 +275,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let session = {};      // { playerId, displayName, isAdmin }
 let view = 'login';
+sb.auth.onAuthStateChange((event) => { if (event === 'PASSWORD_RECOVERY'){ view = 'resetPassword'; render(); } });
 let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
 let hammerMode = false;
@@ -395,6 +396,7 @@ function showError(e){ alert('Something went wrong: ' + (e && e.message ? e.mess
 function render(){
   const app = document.getElementById('app');
   if (view === 'login') { app.innerHTML = renderLogin(); return; }
+  if (view === 'resetPassword') { app.innerHTML = renderResetPassword(); return; }
   const topbar = renderTopbar();
   const tabs = renderTabs();
   let body = '';
@@ -443,8 +445,17 @@ function renderLogin(){
       '<label>Password</label>' + pwField('au-pass','At least 6 characters') +
       (authMode==='signup' ? '<label>Confirm password</label>' + pwField('au-pass2','') : '') +
       '<button class="btn btn-primary btn-block" id="au-btn" style="margin-top:16px;" onclick="App.' + (authMode==='signup'?'signup':'login') + '()">' + (authMode==='signup'?'Create Account':'Log In') + '</button>' +
+      (authMode==='login' ? '<button class="btn btn-block" style="margin-top:8px;" onclick="App.requestPasswordReset()">Forgot password?</button>' : '') +
     '</div>' +
   '</div>';
+}
+function renderResetPassword(){
+  return '<div class="login-hero"><h1 class="diamond-text">Set a new password</h1></div>' +
+    '<div class="content" style="padding-top:22px;"><div class="card">' +
+      '<label>New password</label>' + pwField('rp-pass','At least 6 characters') +
+      '<label>Confirm new password</label>' + pwField('rp-pass2','') +
+      '<button class="btn btn-primary btn-block" style="margin-top:16px;" onclick="App.submitNewPassword()">Set Password</button>' +
+    '</div></div>';
 }
 
 function renderProfile(){
@@ -461,6 +472,15 @@ function renderProfile(){
   html += '<div class="card"><h3 style="margin-top:0;">Password</h3>' +
     '<label>New password</label>' + pwField('pf-pass','At least 6 characters') +
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.changePassword()">Update password</button></div>';
+  html += '<div class="card"><h3 style="margin-top:0;">How It Works</h3>' +
+    '<p>Each week has 11 games. Pick a winner for 10 of them and assign each a confidence value 1\u201310 (used once each) \u2014 skip exactly one game. 10 means you\'re most sure, 1 means you\'re least sure. There are no spreads, just straight-up winners.</p>' +
+    '<p><strong>Tiebreaker:</strong> the Monday night game. Predict the combined total score of both teams \u2014 closest guess wins the tiebreak.</p>' +
+    '<p><strong>Ties:</strong> if an NFL game ends in a tie, nobody gets points for it.</p>' +
+    '<p><strong>Seau\'s Hammer:</strong> once all season, you can put all 55 points on one game instead of spreading them out. The commissioner marks which game is eligible each week. You can\'t win that week\'s prize if you use it.</p>' +
+    '<p><strong>Insurance:</strong> miss the deadline and you\'re not shut out \u2014 you\'ll automatically get the current leader\'s picks with the confidence values flipped. Those points count, but that week isn\'t eligible for a weekly prize.</p>' +
+    '<p><strong>Survivor pools:</strong> your 1-point pick and your 10-point pick each week also run as season-long survivor pools. Lose with either one and you\'re out of that pool for the year.</p>' +
+    '<p><strong>Payouts:</strong> weekly 1st/2nd/3rd place prizes, plus end-of-season prizes and a payout to whoever survives the full season in each survivor pool.</p>' +
+  '</div>';
   html += '<div class="card"><h3 style="margin-top:0;">Past seasons</h3>' +
     '<p class="muted">If your historic picks weren\'t linked when you signed up, you can search for them here.</p>' +
     '<button class="btn" onclick="App.manualClaimSearch()">Find my past picks</button></div>';
@@ -880,8 +900,9 @@ function renderAdmin(){
     '<div><label>1-pt Survivor prize</label><input id="pay-sv1" type="number" value="' + (STATE.meta.survivor1pt??'') + '"></div></div>' +
     '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.savePayouts()">Save Payouts</button></div>';
 
-  const players = Object.entries(STATE.players);
-  html += '<div class="card"><h3 style="margin-top:0;">Players (' + players.length + ')</h3>';
+  const players = Object.entries(STATE.players).sort((a,b) => a[1].displayName.localeCompare(b[1].displayName));
+  html += '<div class="card"><h3 style="margin-top:0;">Players (' + players.length + ')</h3>' +
+    '<p class="muted" style="margin-top:-6px;">Tap "Make Admin" to let someone else pick each week\'s games alongside you.</p>';
   if (!players.length) html += '<div class="muted">No one has logged in yet.</div>';
   else players.forEach(([pid,p]) => {
     html += '<div class="row" style="align-items:center;margin-bottom:8px;"><div>' + esc(p.displayName) + (p.isAdmin?' <span class="badge gold">Admin</span>':'') + (p.championNotes?' <span class="badge" title="Champion history">&#127942; ' + esc(p.championNotes) + '</span>':'') + '</div>' +
@@ -1055,6 +1076,27 @@ const App = {
       await App.offerLegacyClaim(data.user.id, displayName);
       render();
     } catch(e){ showError(e); btn.disabled=false; btn.textContent='Create Account'; }
+  },
+  async requestPasswordReset(){
+    const email = (document.getElementById('au-email').value || '').trim();
+    if (!email || !email.includes('@')){ alert('Enter your email above first, then tap Forgot password? again.'); return; }
+    try {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+      if (error) throw error;
+      alert('Check your email for a link to reset your password.');
+    } catch(e){ showError(e); }
+  },
+  async submitNewPassword(){
+    const pass = document.getElementById('rp-pass').value;
+    const pass2 = document.getElementById('rp-pass2').value;
+    if (!pass || pass.length < 6){ alert('Password must be at least 6 characters.'); return; }
+    if (pass !== pass2){ alert('Passwords don\'t match.'); return; }
+    try {
+      const { error } = await sb.auth.updateUser({ password: pass });
+      if (error) throw error;
+      alert('Password updated. You\'re logged in.');
+      await boot();
+    } catch(e){ showError(e); }
   },
   async login(){
     const email = (document.getElementById('au-email').value||'').trim();
