@@ -122,6 +122,11 @@
   .tab.active { color: var(--ink); border-bottom-color: var(--gold); }
   .content { padding: 18px 16px 8px; }
   .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 500; padding: 16px; }
+  .modal-box { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 20px; max-width: 420px; width: 100%; max-height: 85vh; overflow-y: auto; }
+  .modal-box h3 { margin-top: 0; }
+  .match-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .match-row:last-of-type { border-bottom: none; }
   .muted { color: var(--muted); font-size: 13px; }
   .btn { font: inherit; font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--ink); cursor: pointer; }
   .btn:active { transform: translateY(1px); }
@@ -269,6 +274,7 @@ let view = 'login';
 let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
 let hammerMode = false;
+let claimModal = null; // { candidates: [{clean_name, champion_notes}], playerId, displayName }
 let adminDraftGames = null;
 let scheduleFilter = '';
 let scheduleLeagueFilter = '';
@@ -351,7 +357,7 @@ async function loadAllWeeksAndPicks(){
   (weekRows||[]).forEach(w => { STATE.weeks[weekKey(w.week_number)] = { locked: w.locked, games: [] }; });
   (gameRows||[]).forEach(g => { const k = weekKey(g.week_number); if (!STATE.weeks[k]) STATE.weeks[k] = { locked:false, games:[] }; STATE.weeks[k].games.push(rowToGame(g)); });
   STATE.players = {};
-  (profileRows||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin }; });
+  (profileRows||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes }; });
   STATE.picks = {};
   (pickRows||[]).forEach(p => { STATE.picks[pickDocId(p.week_number, p.player_id)] = rowToPick(p); });
 }
@@ -362,7 +368,7 @@ async function loadOwnPick(wk, playerId){
 async function loadProfiles(){
   const { data } = await sb.from('profiles').select('*');
   STATE.players = {};
-  (data||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin }; });
+  (data||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes }; });
 }
 async function loadScheduleCache(){
   const { data } = await sb.from('schedule_cache').select('*').order('kickoff', { ascending: true });
@@ -381,14 +387,29 @@ function render(){
   if (view === 'picks') body = renderPicks();
   else if (view === 'standings') body = renderStandings();
   else if (view === 'admin') body = renderAdmin();
+  else if (view === 'profile') body = renderProfile();
   app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
-    '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>';
+    '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>' +
+    renderClaimModal();
+}
+function renderClaimModal(){
+  if (!claimModal) return '';
+  let html = '<div class="modal-overlay"><div class="modal-box">' +
+    '<h3>Is this you?</h3>' +
+    '<p class="muted">We found past seasons of picks under these names. If one of these is you, claim it to bring in your history.</p>';
+  claimModal.candidates.forEach(c => {
+    html += '<div class="match-row"><div>' + esc(c.clean_name) + (c.champion_notes?' <span class="badge gold">&#127942; ' + esc(c.champion_notes) + '</span>':'') + '</div>' +
+      '<button class="btn btn-primary" onclick="App.confirmClaim(\'' + esc(c.clean_name) + '\')">This is me</button></div>';
+  });
+  html += '<button class="btn btn-block" style="margin-top:14px;" onclick="App.dismissClaim()">None of these are me</button>' +
+    '</div></div>';
+  return html;
 }
 function renderTopbar(){ return '<div class="topbar"><div class="brand diamond-text">The Blitz</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
 function renderTabs(){
   return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
-    '<button class="tab" onclick="App.logout()">Log out</button></div>';
+    tabBtn('profile','Profile') + '</div>';
 }
 function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':'') + '" onclick="App.setView(\'' + id + '\')">' + esc(label) + '</button>'; }
 
@@ -411,6 +432,26 @@ function renderLogin(){
   '</div>';
 }
 
+function renderProfile(){
+  const me = STATE.players[session.playerId] || {};
+  let html = '<div class="card">' +
+    '<h3 style="margin-top:0;">Your info</h3>' +
+    '<label>Display name</label><input id="pf-name" value="' + esc(session.displayName) + '">' +
+    '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.saveDisplayName()">Save name</button>' +
+  '</div>';
+  if (me.championNotes){
+    html += '<div class="card"><h3 style="margin-top:0;">Champion history</h3>' +
+      '<div><span class="badge gold">&#127942; ' + esc(me.championNotes) + '</span></div></div>';
+  }
+  html += '<div class="card"><h3 style="margin-top:0;">Password</h3>' +
+    '<label>New password</label><input id="pf-pass" type="password" placeholder="At least 6 characters">' +
+    '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.changePassword()">Update password</button></div>';
+  html += '<div class="card"><h3 style="margin-top:0;">Past seasons</h3>' +
+    '<p class="muted">If your historic picks weren\'t linked when you signed up, you can search for them here.</p>' +
+    '<button class="btn" onclick="App.manualClaimSearch()">Find my past picks</button></div>';
+  html += '<button class="btn btn-block" onclick="App.logout()">Log out</button>';
+  return html;
+}
 function weekOptions(selected){
   let html = '';
   for (let i=1;i<=TOTAL_WEEKS;i++) html += '<option value="'+i+'" ' + (i===selected?'selected':'') + '>Week ' + i + '</option>';
@@ -800,7 +841,7 @@ function renderAdmin(){
   html += '<div class="card"><h3 style="margin-top:0;">Players (' + players.length + ')</h3>';
   if (!players.length) html += '<div class="muted">No one has logged in yet.</div>';
   else players.forEach(([pid,p]) => {
-    html += '<div class="row" style="align-items:center;margin-bottom:8px;"><div>' + esc(p.displayName) + (p.isAdmin?' <span class="badge gold">Admin</span>':'') + '</div>' +
+    html += '<div class="row" style="align-items:center;margin-bottom:8px;"><div>' + esc(p.displayName) + (p.isAdmin?' <span class="badge gold">Admin</span>':'') + (p.championNotes?' <span class="badge" title="Champion history">&#127942; ' + esc(p.championNotes) + '</span>':'') + '</div>' +
       '<button class="btn" style="flex:0 0 auto;" onclick="App.toggleAdmin(\'' + pid + '\')">' + (p.isAdmin ? 'Remove Admin' : 'Make Admin') + '</button></div>';
   });
   html += '</div>';
@@ -839,6 +880,77 @@ const App = {
     } catch(e){ showError(e); }
   },
 
+  async offerLegacyClaim(playerId, displayName){
+    try {
+      const { data: legacyPlayers } = await sb.from('legacy_players').select('*');
+      if (!legacyPlayers || !legacyPlayers.length) return;
+      const norm = s => s.trim().toLowerCase().replace(/\s+/g,' ');
+      const target = norm(displayName);
+      const targetWords = target.split(' ');
+      const scored = legacyPlayers.map(lp => {
+        const name = norm(lp.clean_name);
+        if (name === target) return { lp, score: 100 };
+        const words = name.split(' ');
+        let common = 0;
+        targetWords.forEach(w => { if (words.includes(w)) common++; });
+        let score = (common / Math.max(targetWords.length, words.length)) * 80;
+        if (words[words.length-1] === targetWords[targetWords.length-1]) score += 15;
+        return { lp, score };
+      }).filter(s => s.score >= 40).sort((a,b) => b.score - a.score).slice(0,5);
+      if (!scored.length) return;
+      claimModal = { candidates: scored.map(s => s.lp), playerId, displayName };
+    } catch(e){ /* best-effort */ }
+  },
+  async confirmClaim(cleanName){
+    if (!claimModal) return;
+    const { playerId, displayName } = claimModal;
+    try {
+      const { data: legacyPicks } = await sb.from('legacy_picks').select('*').eq('clean_name', cleanName);
+      if (legacyPicks && legacyPicks.length){
+        const rows = legacyPicks.map(lp => ({
+          week_number: lp.week_number, player_id: playerId, display_name: displayName,
+          game_picks: lp.game_picks, omit_game_id: lp.omit_game_id, tiebreaker: lp.tiebreaker,
+          submitted_at: new Date().toISOString(), is_hammer: false, is_insurance: false
+        }));
+        await sb.from('picks').upsert(rows);
+      }
+      const { data: legacyPlayer } = await sb.from('legacy_players').select('*').eq('clean_name', cleanName).maybeSingle();
+      if (legacyPlayer && legacyPlayer.champion_notes){
+        await sb.from('profiles').update({ champion_notes: legacyPlayer.champion_notes }).eq('id', playerId);
+      }
+      claimModal = null;
+      await loadOwnPick(STATE.meta.currentWeek, playerId);
+      render();
+      alert('Your past picks have been added to your account.');
+    } catch(e){ claimModal = null; showError(e); }
+  },
+  dismissClaim(){ claimModal = null; render(); },
+  async saveDisplayName(){
+    const name = (document.getElementById('pf-name').value || '').trim();
+    if (!name){ alert('Enter a name.'); return; }
+    try {
+      await sb.from('profiles').update({ display_name: name }).eq('id', session.playerId);
+      session.displayName = name;
+      if (STATE.players[session.playerId]) STATE.players[session.playerId].displayName = name;
+      render();
+      alert('Name updated.');
+    } catch(e){ showError(e); }
+  },
+  async changePassword(){
+    const pass = document.getElementById('pf-pass').value;
+    if (!pass || pass.length < 6){ alert('Password must be at least 6 characters.'); return; }
+    try {
+      const { error } = await sb.auth.updateUser({ password: pass });
+      if (error) throw error;
+      document.getElementById('pf-pass').value = '';
+      alert('Password updated.');
+    } catch(e){ showError(e); }
+  },
+  async manualClaimSearch(){
+    await App.offerLegacyClaim(session.playerId, session.displayName);
+    if (!claimModal) alert('No past picks found under your name. If you played before under a different name, let the commissioner know.');
+    render();
+  },
   async signup(){
     const first = (document.getElementById('au-first').value||'').trim();
     const last = (document.getElementById('au-last').value||'').trim();
@@ -861,6 +973,8 @@ const App = {
       if (profErr) throw profErr;
       session = { playerId: data.user.id, displayName, isAdmin: false, hammerUsed: false };
       await boot();
+      await App.offerLegacyClaim(data.user.id, displayName);
+      render();
     } catch(e){ showError(e); btn.disabled=false; btn.textContent='Create Account'; }
   },
   async login(){
