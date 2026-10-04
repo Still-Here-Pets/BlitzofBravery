@@ -127,13 +127,17 @@
   .modal-box h3 { margin-top: 0; }
   .match-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .match-row:last-of-type { border-bottom: none; }
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 56px; }
+  .pw-toggle { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
+  .pw-toggle:hover { color: var(--ink); }
   .muted { color: var(--muted); font-size: 13px; }
   .btn { font: inherit; font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--ink); cursor: pointer; }
   .btn:active { transform: translateY(1px); }
   .btn-primary { background: var(--gold); color: #201800; border-color: transparent; }
   .btn-block { width: 100%; } .btn-danger { color: var(--brick); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  input, select { font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); width: 100%; }
+  input, select, textarea { font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); width: 100%; }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
   label:first-child { margin-top: 0; }
   .row { display: flex; gap: 10px; } .row > * { flex: 1; }
@@ -281,6 +285,7 @@ let scheduleLeagueFilter = '';
 let scheduleSelected = {};
 const TOTAL_WEEKS = 15;
 let picksViewWeek = null;
+let boardViewWeek = null;
 let standingsViewWeek = null;
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
@@ -288,8 +293,12 @@ let pendingWeekInput = null;
 const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
 
 const FBS_TEAMS = ["Boston College","California","Clemson","Duke","Florida State","Georgia Tech","Louisville","Miami (FL)","NC State","North Carolina","Pittsburgh","SMU","Stanford","Syracuse","Virginia","Virginia Tech","Wake Forest","Army","Charlotte","East Carolina","Florida Atlantic","Memphis","Navy","North Texas","Rice","Temple","Tulane","Tulsa","UAB","USF","UTSA","Illinois","Indiana","Iowa","Maryland","Michigan","Michigan State","Minnesota","Nebraska","Northwestern","Ohio State","Oregon","Penn State","Purdue","Rutgers","UCLA","USC","Washington","Wisconsin","Delaware","FIU","Jacksonville State","Kennesaw State","Liberty","Middle Tennessee","Missouri State","New Mexico State","Sam Houston","Western Kentucky","Notre Dame","UConn","Akron","Ball State","Bowling Green","Buffalo","Central Michigan","Eastern Michigan","Kent State","Miami (OH)","Ohio","Sacramento State","Toledo","UMass","Western Michigan","Air Force","Hawai'i","Nevada","New Mexico","North Dakota State","Northern Illinois","San José State","UNLV","UTEP","Wyoming","Boise State","Colorado State","Fresno State","Oregon State","San Diego State","Texas State","Utah State","Washington State","Alabama","Arkansas","Auburn","Florida","Georgia","Kentucky","LSU","Mississippi State","Missouri","Oklahoma","Ole Miss","South Carolina","Tennessee","Texas","Texas A&M","Vanderbilt","Arizona","Arizona State","Baylor","BYU","Cincinnati","Colorado","Houston","Iowa State","Kansas","Kansas State","Oklahoma State","TCU","Texas Tech","UCF","Utah","West Virginia","Appalachian State","Coastal Carolina","Georgia Southern","Georgia State","James Madison","Marshall","Old Dominion","Arkansas State","Louisiana","Louisiana Tech","South Alabama","Southern Miss","Troy","ULM"];
-let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [] };
+let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [], messages: {} };
 
+function pwField(id, placeholder){
+  return '<div class="pw-wrap"><input id="' + id + '" type="password" placeholder="' + esc(placeholder||'') + '">' +
+    '<button type="button" class="pw-toggle" onclick="App.togglePwVisible(\'' + id + '\', this)">Show</button></div>';
+}
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function normId(name){ return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40); }
 function newId(){ return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2)); }
@@ -361,6 +370,11 @@ async function loadAllWeeksAndPicks(){
   STATE.picks = {};
   (pickRows||[]).forEach(p => { STATE.picks[pickDocId(p.week_number, p.player_id)] = rowToPick(p); });
 }
+async function loadBoardMessages(wk){
+  const { data, error } = await sb.from('messages').select('*').eq('week_number', wk).order('created_at', { ascending: false });
+  if (error) throw error;
+  STATE.messages[wk] = (data||[]).map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at }));
+}
 async function loadOwnPick(wk, playerId){
   const { data } = await sb.from('picks').select('*').eq('week_number', wk).eq('player_id', playerId).maybeSingle();
   if (data) STATE.picks[pickDocId(wk, playerId)] = rowToPick(data);
@@ -388,6 +402,7 @@ function render(){
   else if (view === 'standings') body = renderStandings();
   else if (view === 'admin') body = renderAdmin();
   else if (view === 'profile') body = renderProfile();
+  else if (view === 'board') body = renderBoard();
   app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
     '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>' +
     renderClaimModal();
@@ -407,7 +422,7 @@ function renderClaimModal(){
 }
 function renderTopbar(){ return '<div class="topbar"><div class="brand diamond-text">The Blitz</div><div class="week">WEEK ' + esc(STATE.meta.currentWeek) + '</div></div>'; }
 function renderTabs(){
-  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') +
+  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('board','Board') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
     tabBtn('profile','Profile') + '</div>';
 }
@@ -425,8 +440,8 @@ function renderLogin(){
       (authMode==='signup' ? '<label>First name</label><input id="au-first" placeholder="Jordan">' +
         '<label>Last name</label><input id="au-last" placeholder="Smith">' : '') +
       '<label>Email</label><input id="au-email" type="email" placeholder="you@example.com" autocapitalize="off" autocorrect="off">' +
-      '<label>Password</label><input id="au-pass" type="password" placeholder="At least 6 characters">' +
-      (authMode==='signup' ? '<label>Confirm password</label><input id="au-pass2" type="password">' : '') +
+      '<label>Password</label>' + pwField('au-pass','At least 6 characters') +
+      (authMode==='signup' ? '<label>Confirm password</label>' + pwField('au-pass2','') : '') +
       '<button class="btn btn-primary btn-block" id="au-btn" style="margin-top:16px;" onclick="App.' + (authMode==='signup'?'signup':'login') + '()">' + (authMode==='signup'?'Create Account':'Log In') + '</button>' +
     '</div>' +
   '</div>';
@@ -444,12 +459,40 @@ function renderProfile(){
       '<div><span class="badge gold">&#127942; ' + esc(me.championNotes) + '</span></div></div>';
   }
   html += '<div class="card"><h3 style="margin-top:0;">Password</h3>' +
-    '<label>New password</label><input id="pf-pass" type="password" placeholder="At least 6 characters">' +
+    '<label>New password</label>' + pwField('pf-pass','At least 6 characters') +
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.changePassword()">Update password</button></div>';
   html += '<div class="card"><h3 style="margin-top:0;">Past seasons</h3>' +
     '<p class="muted">If your historic picks weren\'t linked when you signed up, you can search for them here.</p>' +
     '<button class="btn" onclick="App.manualClaimSearch()">Find my past picks</button></div>';
   html += '<button class="btn btn-block" onclick="App.logout()">Log out</button>';
+  return html;
+}
+function timeAgo(iso){
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff/60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins/60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.floor(hrs/24);
+  if (days < 7) return days + 'd ago';
+  return new Date(iso).toLocaleDateString();
+}
+function renderBoard(){
+  const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
+  let html = '<label>Viewing</label><select onchange="App.setBoardWeek(this.value)">' + weekOptions(wk) + '</select>';
+  html += '<div class="card" style="margin-top:14px;">' +
+    '<textarea id="board-compose" rows="3" placeholder="Say something about Week ' + esc(wk) + '…" style="width:100%;resize:vertical;"></textarea>' +
+    '<button class="btn btn-primary" style="margin-top:8px;" onclick="App.postMessage()">Post</button>' +
+  '</div>';
+  const msgs = STATE.messages[wk] || [];
+  if (!msgs.length) html += '<div class="empty">No messages yet for Week ' + esc(wk) + '. Be the first to say something.</div>';
+  else msgs.forEach(m => {
+    html += '<div class="card" style="margin-bottom:10px;">' +
+      '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong> <span class="muted">' + timeAgo(m.createdAt) + '</span></div>' +
+      (m.playerId === session.playerId ? '<button class="btn" style="flex:0 0 auto;" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button>' : '') +
+      '</div><div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div></div>';
+  });
   return html;
 }
 function weekOptions(selected){
@@ -861,6 +904,7 @@ const App = {
           if (session.playerId) await loadOwnPick(wk, session.playerId);
         }
         else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); }
+        else if (v === 'board') { await loadBoardMessages(boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek); }
         render();
       } catch(e){ showError(e); }
     })();
@@ -870,6 +914,34 @@ const App = {
   setScheduleFilter(v){ scheduleFilter = v; render(); },
   setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
   setStandingsWeek(v){ standingsViewWeek = parseInt(v,10); render(); },
+  async setBoardWeek(v){
+    const n = parseInt(v, 10);
+    boardViewWeek = n;
+    try { await loadBoardMessages(n); render(); } catch(e){ showError(e); }
+  },
+  async postMessage(){
+    const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
+    const el = document.getElementById('board-compose');
+    const body = (el.value || '').trim();
+    if (!body) return;
+    try {
+      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body });
+      if (error) throw error;
+      el.value = '';
+      await loadBoardMessages(wk);
+      render();
+    } catch(e){ showError(e); }
+  },
+  async deleteMessage(id){
+    if (!confirm('Delete this message?')) return;
+    const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
+    try {
+      const { error } = await sb.from('messages').delete().eq('id', id);
+      if (error) throw error;
+      await loadBoardMessages(wk);
+      render();
+    } catch(e){ showError(e); }
+  },
   async setPicksWeek(v){
     const n = parseInt(v, 10);
     picksViewWeek = n;
@@ -925,6 +997,13 @@ const App = {
     } catch(e){ claimModal = null; showError(e); }
   },
   dismissClaim(){ claimModal = null; render(); },
+  togglePwVisible(id, btn){
+    const el = document.getElementById(id);
+    if (!el) return;
+    const show = el.type === 'password';
+    el.type = show ? 'text' : 'password';
+    btn.textContent = show ? 'Hide' : 'Show';
+  },
   async saveDisplayName(){
     const name = (document.getElementById('pf-name').value || '').trim();
     if (!name){ alert('Enter a name.'); return; }
