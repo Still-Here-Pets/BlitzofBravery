@@ -233,7 +233,12 @@
     color: #4CE08A;
     text-shadow: 0 0 6px rgba(76,224,138,0.9), 0 0 18px rgba(76,224,138,0.6), 0 0 38px rgba(76,224,138,0.28);
   }
-  .team-box.loser .team-score { opacity: 0.4; filter: saturate(0.5); text-shadow: none; }
+  .team-box.loser .team-score {
+    color: var(--brick);
+    text-shadow: 0 0 6px rgba(210,38,48,0.75), 0 0 18px rgba(210,38,48,0.45), 0 0 38px rgba(210,38,48,0.2);
+    opacity: 0.85;
+  }
+  .pts-badge { font-size: 18px; padding: 4px 10px; font-weight: 800; }
   .team-tags { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
   .win-tag { font-size: 10px; font-weight: 800; color: #4CE08A; text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(76,224,138,0.6); }
   .pick-tag { font-size: 10px; font-weight: 800; color: var(--gold); text-transform: uppercase; letter-spacing: 0.05em; text-shadow: 0 0 4px rgba(255,214,10,0.5); }
@@ -647,7 +652,7 @@ function renderPicks(){
   } else if (hammerMode && existing && existing.isHammer && locked){
     const pick = draft.gamePicks[hammerGame ? hammerGame.id : Object.keys(draft.gamePicks)[0]] || Object.values(draft.gamePicks)[0] || {};
     const hg = hammerGame || w.games.find(g => draft.gamePicks[g.id]);
-    if (hg) html += renderScorecard(hg, pick.winner, false, '<span><span class="badge gold">55 pts</span> (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
+    if (hg) html += renderScorecard(hg, pick.winner, false, '<span><span class="badge gold pts-badge">55 pts</span> (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
   } else {
   const usedValues = new Set(Object.values(draft.gamePicks).map(p => p.value).filter(v => v != null));
   regular.forEach(g => {
@@ -667,7 +672,7 @@ function renderPicks(){
       '</div>';
     } else {
       const foot = isSkipped ? '<span>Skipped this week</span>' :
-        (pick.winner ? '<span>' + (pick.value?('<span class="badge gold">' + pick.value + ' pts</span>'):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
+        (pick.winner ? '<span>' + (pick.value?('<span class="badge gold pts-badge">' + pick.value + ' pts</span>'):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
       html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
     }
   });
