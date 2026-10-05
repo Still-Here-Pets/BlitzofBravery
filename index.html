@@ -731,7 +731,7 @@ function renderPicks(){
   } else if (hammerMode && existing && existing.isHammer && locked){
     const pick = draft.gamePicks[hammerGame ? hammerGame.id : Object.keys(draft.gamePicks)[0]] || Object.values(draft.gamePicks)[0] || {};
     const hg = hammerGame || w.games.find(g => draft.gamePicks[g.id]);
-    if (hg) html += renderScorecard(hg, pick.winner, false, '<span><span class="badge gold pts-badge">55 pts</span> (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
+    if (hg) html += renderScorecard(hg, pick.winner, false, '<span>' + ptsBadge(55, hg.winner, pick.winner) + ' (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
   } else {
   const usedValues = new Set(Object.values(draft.gamePicks).map(p => p.value).filter(v => v != null));
   regular.forEach(g => {
@@ -751,7 +751,7 @@ function renderPicks(){
       '</div>';
     } else {
       const foot = isSkipped ? '<span>Skipped this week</span>' :
-        (pick.winner ? '<span>' + (pick.value?('<span class="badge gold pts-badge">' + pick.value + ' pts</span>'):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
+        (pick.winner ? '<span>' + (pick.value?ptsBadge(pick.value, g.winner, pick.winner):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
       html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
     }
   });
@@ -775,6 +775,15 @@ function renderPicks(){
   if (!locked) html += '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.submitPicks()">' + (existing?'Update Picks':'Submit Picks') + '</button>';
 
   return html;
+}
+function ptsBadge(value, gameWinner, pickWinner){
+  let style = '';
+  if (gameWinner && pickWinner){
+    style = pickWinner === gameWinner
+      ? 'background:#4CE08A;color:#06130c;'
+      : 'background:rgba(210,38,48,0.85);color:#fff;';
+  }
+  return '<span class="badge gold pts-badge" style="' + style + '">' + value + ' pts</span>';
 }
 function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge missed">Missed</span>'; }
 function teamBtn(g, side, selected, disabled, isTb, isHammer){
