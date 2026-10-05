@@ -132,6 +132,14 @@
     stroke: #8A6A1E; stroke-width: 1.2;
     filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
   }
+  .tagline {
+    font-family: "Work Sans", sans-serif; font-size: 12px; font-weight: 700;
+    letter-spacing: 0.17em; text-transform: uppercase;
+    color: #6B4712;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.5), 0 -1px 1px rgba(0,0,0,0.35);
+    margin: -6px 0 8px;
+  }
+  .login-hero .tagline { margin: 2px 0 10px; }
   .led-plate {
     background: linear-gradient(180deg, #0A1A10 0%, #04100A 100%);
     border: 2px solid #3A2E0E;
@@ -542,6 +550,7 @@ function renderTopbar(){
       '</pattern></defs>' +
       '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFill)">Blitz of Bravery</text>' +
     '</svg>' +
+    '<div class="tagline">Honor Rewards The Brave Above All Else</div>' +
     '<div class="led-plate"><div class="led-label">WEEK</div><div class="led-digits">' + (STATE.meta.currentWeek < 10 ? '0' : '') + wk + '</div></div>' +
   '</div>';
 }
@@ -565,7 +574,8 @@ function renderLogin(){
       '</pattern></defs>' +
       '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFillLogin)">' + esc(STATE.meta.seasonName || 'Blitz of Bravery') + '</text>' +
     '</svg>' +
-    '<div class="muted" style="margin-top:4px;">Confidence picks. Bragging rights. Every week.</div></div>' +
+    '<div class="tagline">Honor Rewards The Brave Above All Else</div>' +
+    '<div class="muted">Confidence picks. Bragging rights. Every week.</div></div>' +
     '<div class="content" style="padding-top:22px;">' +
     '<div class="authtabs">' +
       '<button class="btn ' + (authMode==='login'?'btn-primary':'') + '" onclick="App.setAuthMode(\'login\')">Log In</button>' +
