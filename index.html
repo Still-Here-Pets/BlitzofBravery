@@ -766,7 +766,9 @@ function renderPicks(){
       '</div>';
     } else {
       const actualTotal = (tb.awayScore!=null && tb.homeScore!=null) ? (tb.awayScore+tb.homeScore) : null;
+      const pickedName = tbp.winner === 'away' ? tb.away : (tbp.winner === 'home' ? tb.home : null);
       const foot = '<span>Predicted total: ' + esc(tbp.total==null?'—':tbp.total) + '</span>' +
+        (pickedName ? '<span>Picked: <strong>' + esc(pickedName) + '</strong></span>' : '<span>No winner picked</span>') +
         (actualTotal!=null ? '<span>Actual total: <strong>' + actualTotal + '</strong></span>' : '<span>Tiebreaker pending</span>');
       html += '<div style="margin-bottom:4px;"><span class="badge gold">MONDAY NIGHT TIEBREAKER</span></div>' +
         renderScorecard(tb, tbp.winner, false, foot);
@@ -1011,7 +1013,8 @@ function renderAdmin(){
     html += '<div class="game-row ' + (g.isTiebreaker?'tiebreaker':'') + '">' +
       '<div class="game-meta"><strong style="color:var(--ink);">' + esc(label) + '</strong>' +
       (g.isTiebreaker ? '' : '<select style="width:auto;" onchange="App.setSlotField(' + i + ',\'league\',this.value)">' +
-        '<option ' + (g.league==='NFL'?'selected':'') + '>NFL</option><option ' + (g.league==='College'?'selected':'') + '>College</option></select>') + '</div>' +
+        '<option ' + (g.league==='NFL'?'selected':'') + '>NFL</option><option ' + (g.league==='College'?'selected':'') + '>College</option></select>') +
+      (hasNames ? '<button class="btn" style="flex:0 0 auto;" onclick="App.clearSlot(' + i + ')">Clear</button>' : '') + '</div>' +
       '<div class="row"><input placeholder="Away team" list="' + (g.isTiebreaker||g.league==='NFL'?'nfl-teams':'fbs-teams') + '" value="' + esc(g.away) + '" onchange="App.setSlotField(' + i + ',\'away\',this.value)">' +
       '<input placeholder="Home team" list="' + (g.isTiebreaker||g.league==='NFL'?'nfl-teams':'fbs-teams') + '" value="' + esc(g.home) + '" onchange="App.setSlotField(' + i + ',\'home\',this.value)"></div>' +
       '<label>Kickoff</label><input type="datetime-local" value="' + toLocalInputValue(g.kickoff) + '" onchange="App.setSlotField(' + i + ',\'kickoff\',this.value)">';
@@ -1351,6 +1354,14 @@ const App = {
   setSlotField(i, field, value){
     if (field === 'kickoff') adminDraftGames[i].kickoff = value ? new Date(value).toISOString() : '';
     else adminDraftGames[i][field] = value;
+    render();
+  },
+  clearSlot(i){
+    if (!confirm('Clear this game? This empties the slot so you can pick a different game before the week goes live.')) return;
+    const isTb = adminDraftGames[i].isTiebreaker;
+    const fresh = blankSlot(isTb);
+    fresh.isHammerSlot = false;
+    adminDraftGames[i] = fresh;
     render();
   },
   toggleScheduleSelect(id){
