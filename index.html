@@ -199,13 +199,14 @@
   .footer-note { font-size: 12px; color: var(--muted); text-align: center; margin-top: 20px; }
   a.link { color: var(--gold); cursor: pointer; }
   .login-hero {
+    position: relative;
     background:
-      linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 35%),
-      repeating-linear-gradient(125deg, rgba(255,255,255,0.10) 0 3px, transparent 3px 9px),
-      linear-gradient(180deg, #FFE27A 0%, #F2B705 30%, #C9890A 62%, #8A5A0B 100%);
+      linear-gradient(100deg, transparent 28%, rgba(255,255,255,0.65) 44%, rgba(255,255,255,0.2) 53%, transparent 68%),
+      radial-gradient(circle at 25% -10%, rgba(255,255,255,0.55), transparent 55%),
+      linear-gradient(180deg, #FFEC9A 0%, #FBD24A 22%, #F0AC12 45%, #C8860A 68%, #8A5A0B 100%);
     border-bottom: 4px solid #6B4A12;
     box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25), inset 0 2px 1px rgba(255,255,255,0.6);
-    padding: calc(env(safe-area-inset-top, 0px) + 36px) 20px 28px;
+    padding: calc(env(safe-area-inset-top, 0px) + 28px) 20px 20px;
     text-align: center;
   }
   .login-hero h1 { font-size: 40px; letter-spacing: 0.05em; margin: 0 0 6px; }
@@ -552,8 +553,19 @@ function renderTabs(){
 function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':'') + '" onclick="App.setView(\'' + id + '\')">' + esc(label) + '</button>'; }
 
 function renderLogin(){
-  return '<div class="login-hero"><h1 class="diamond-text">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</h1>' +
-    '<div class="muted">Confidence picks. Bragging rights. Every week.</div></div>' +
+  return '<div class="login-hero">' +
+    '<div class="bolt tl"></div><div class="bolt tr"></div><div class="bolt bl"></div><div class="bolt br"></div>' +
+    '<svg class="brand-svg" viewBox="0 0 820 150" xmlns="http://www.w3.org/2000/svg">' +
+      '<defs><pattern id="diamondFillLogin" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">' +
+        '<rect width="11" height="11" fill="#D7E4EE"></rect>' +
+        '<circle cx="3" cy="3" r="2.6" fill="#ffffff"></circle>' +
+        '<circle cx="3" cy="3" r="0.8" fill="#aecbe0"></circle>' +
+        '<circle cx="8.5" cy="7.5" r="2" fill="#f3f8fb"></circle>' +
+        '<circle cx="8.5" cy="7.5" r="0.6" fill="#9fc0d8"></circle>' +
+      '</pattern></defs>' +
+      '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFillLogin)">' + esc(STATE.meta.seasonName || 'Blitz of Bravery') + '</text>' +
+    '</svg>' +
+    '<div class="muted" style="margin-top:4px;">Confidence picks. Bragging rights. Every week.</div></div>' +
     '<div class="content" style="padding-top:22px;">' +
     '<div class="authtabs">' +
       '<button class="btn ' + (authMode==='login'?'btn-primary':'') + '" onclick="App.setAuthMode(\'login\')">Log In</button>' +
@@ -571,7 +583,9 @@ function renderLogin(){
   '</div>';
 }
 function renderResetPassword(){
-  return '<div class="login-hero"><h1 class="diamond-text">Set a new password</h1></div>' +
+  return '<div class="login-hero">' +
+    '<div class="bolt tl"></div><div class="bolt tr"></div><div class="bolt bl"></div><div class="bolt br"></div>' +
+    '<h1 class="diamond-text">Set a new password</h1></div>' +
     '<div class="content" style="padding-top:22px;"><div class="card">' +
       '<label>New password</label>' + pwField('rp-pass','At least 6 characters') +
       '<label>Confirm new password</label>' + pwField('rp-pass2','') +
@@ -1027,11 +1041,9 @@ function renderAdmin(){
         '<button class="pick-btn ' + (g.winner==='home'?'selected':'') + '" onclick="App.setResult(' + i + ',\'home\')">' + esc(g.home) + ' won</button>' +
         (!g.isTiebreaker ? '<button class="btn ' + (g.winner==='tie'?'btn-primary':'') + '" onclick="App.setResult(' + i + ',\'tie\')">Tie</button>' : '') +
       '</div>';
-      if (g.isTiebreaker){
-        html += '<div class="row" style="margin-top:8px;">' +
-          '<div><label>' + esc(g.away) + ' score</label><input type="number" value="' + (g.awayScore==null?'':g.awayScore) + '" onchange="App.setTbScore(' + i + ',\'away\',this.value)"></div>' +
-          '<div><label>' + esc(g.home) + ' score</label><input type="number" value="' + (g.homeScore==null?'':g.homeScore) + '" onchange="App.setTbScore(' + i + ',\'home\',this.value)"></div></div>';
-      }
+      html += '<div class="row" style="margin-top:8px;">' +
+        '<div><label>' + esc(g.away) + ' score</label><input type="number" value="' + (g.awayScore==null?'':g.awayScore) + '" onchange="App.setTbScore(' + i + ',\'away\',this.value)"></div>' +
+        '<div><label>' + esc(g.home) + ' score</label><input type="number" value="' + (g.homeScore==null?'':g.homeScore) + '" onchange="App.setTbScore(' + i + ',\'home\',this.value)"></div></div>';
     }
     html += '</div>';
   });
