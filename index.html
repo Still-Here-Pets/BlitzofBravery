@@ -50,7 +50,7 @@
     background-size: 5% 400px, auto, auto;
     background-repeat: repeat, repeat, repeat;
   }
-  #app { position: relative; z-index: 1; max-width: 640px; width: 100%; margin: 0 auto; padding: 0 0 48px; background: var(--bg); }
+  #app { position: relative; z-index: 1; max-width: 640px; width: 100%; margin: 0 auto; padding: 0 0 48px; background: var(--bg); min-height: 100vh; min-height: 100dvh; }
   .yard-bar {
     position: fixed; left: 185px; right: 185px; height: 26px; z-index: 2;
     display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
@@ -180,7 +180,7 @@
   .btn-primary { background: var(--gold); color: #201800; border-color: transparent; }
   .btn-block { width: 100%; } .btn-danger { color: var(--brick); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  input, select, textarea { font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); width: 100%; }
+  input, select, textarea { font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); width: 100%; }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
   label:first-child { margin-top: 0; }
   .row { display: flex; gap: 10px; } .row > * { flex: 1; }
@@ -575,7 +575,7 @@ function renderLogin(){
       '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFillLogin)">' + esc(STATE.meta.seasonName || 'Blitz of Bravery') + '</text>' +
     '</svg>' +
     '<div class="tagline">Honor Rewards The Brave Above All Else</div>' +
-    '<div class="muted">Confidence picks. Bragging rights. Every week.</div></div>' +
+    '</div>' +
     '<div class="content" style="padding-top:22px;">' +
     '<div class="authtabs">' +
       '<button class="btn ' + (authMode==='login'?'btn-primary':'') + '" onclick="App.setAuthMode(\'login\')">Log In</button>' +
