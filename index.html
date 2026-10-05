@@ -52,7 +52,7 @@
   }
   #app { position: relative; z-index: 1; max-width: 640px; width: 100%; margin: 0 auto; padding: 0 0 48px; background: var(--bg); }
   .yard-bar {
-    position: fixed; left: 170px; right: 170px; height: 26px; z-index: 2;
+    position: fixed; left: 185px; right: 185px; height: 26px; z-index: 2;
     display: flex; justify-content: space-between; align-items: center; padding: 0 4px;
     pointer-events: none;
     font-family: "Bebas Neue", sans-serif; letter-spacing: 0.02em;
@@ -63,7 +63,7 @@
   .yard-bar.bottom { bottom: 0; }
   @media (max-width: 760px) { .yard-bar { display: none; } }
   .endzone-side {
-    position: fixed; top: 0; bottom: 0; width: 170px; z-index: 2;
+    position: fixed; top: 0; bottom: 0; width: 185px; z-index: 2;
     display: flex; align-items: center; justify-content: center; pointer-events: none;
   }
   .endzone-side.left {
@@ -83,9 +83,9 @@
     box-shadow: inset 3px 0 6px rgba(0,0,0,0.35), inset -2px 0 1px rgba(255,255,255,0.08);
   }
   @media (max-width: 900px) { .endzone-side { display: none; } }
-  .endzone-svg { height: 165px; width: auto; }
-  .endzone-side.left .endzone-svg { transform: rotate(90deg); }
-  .endzone-side.right .endzone-svg { transform: rotate(-90deg); }
+  .endzone-svg { height: 172px; width: auto; overflow: visible; }
+  .endzone-side.left .endzone-svg { transform: rotate(-90deg); }
+  .endzone-side.right .endzone-svg { transform: rotate(90deg); }
   .endzone-letters { font-family: "Playfair Display", serif; font-weight: 900; stroke: #8A6A1E; stroke-width: 1.2; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25)); }
   .endzone-letters.silver { stroke: #AEB9BE; }
   .ez-bolt { position: absolute; width: 17px; height: 17px; border-radius: 50%; z-index: 3; }
@@ -310,36 +310,36 @@
 <div class="endzone-side left" aria-hidden="true">
   <div class="ez-bolt gold t1"></div><div class="ez-bolt gold t2"></div>
   <div class="ez-bolt gold b1"></div><div class="ez-bolt gold b2"></div>
-  <svg class="endzone-svg" viewBox="0 0 320 90" xmlns="http://www.w3.org/2000/svg">
+  <svg class="endzone-svg" viewBox="0 0 440 110" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <pattern id="ezDiamondGold" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
-        <rect width="11" height="11" fill="#D7E4EE"></rect>
-        <circle cx="3" cy="3" r="2.6" fill="#ffffff"></circle>
-        <circle cx="3" cy="3" r="0.8" fill="#aecbe0"></circle>
-        <circle cx="8.5" cy="7.5" r="2" fill="#f3f8fb"></circle>
-        <circle cx="8.5" cy="7.5" r="0.6" fill="#9fc0d8"></circle>
+      <pattern id="ezDiamondGold" width="6.5" height="6.5" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+        <rect width="6.5" height="6.5" fill="#D7E4EE"></rect>
+        <circle cx="1.8" cy="1.8" r="1.55" fill="#ffffff"></circle>
+        <circle cx="1.8" cy="1.8" r="0.48" fill="#aecbe0"></circle>
+        <circle cx="5" cy="4.4" r="1.2" fill="#f3f8fb"></circle>
+        <circle cx="5" cy="4.4" r="0.36" fill="#9fc0d8"></circle>
       </pattern>
     </defs>
-    <text x="160" y="62" text-anchor="middle" font-family="Playfair Display, serif" font-weight="900" font-size="78" fill="none" stroke="#0A0A0A" stroke-width="5">The Blitz</text>
-    <text x="160" y="62" text-anchor="middle" class="endzone-letters" font-size="78" fill="url(#ezDiamondGold)">The Blitz</text>
+    <text x="220" y="78" text-anchor="middle" font-family="Playfair Display, serif" font-weight="900" font-size="56" fill="none" stroke="#0A0A0A" stroke-width="5">The Blitz</text>
+    <text x="220" y="78" text-anchor="middle" class="endzone-letters" font-size="56" fill="url(#ezDiamondGold)">The Blitz</text>
   </svg>
 </div>
 
 <div class="endzone-side right" aria-hidden="true">
   <div class="ez-bolt silver t1"></div><div class="ez-bolt silver t2"></div>
   <div class="ez-bolt silver b1"></div><div class="ez-bolt silver b2"></div>
-  <svg class="endzone-svg" viewBox="0 0 320 90" xmlns="http://www.w3.org/2000/svg">
+  <svg class="endzone-svg" viewBox="0 0 440 110" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <pattern id="ezDiamondSilver" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
-        <rect width="11" height="11" fill="#D7E4EE"></rect>
-        <circle cx="3" cy="3" r="2.6" fill="#ffffff"></circle>
-        <circle cx="3" cy="3" r="0.8" fill="#aecbe0"></circle>
-        <circle cx="8.5" cy="7.5" r="2" fill="#f3f8fb"></circle>
-        <circle cx="8.5" cy="7.5" r="0.6" fill="#9fc0d8"></circle>
+      <pattern id="ezDiamondSilver" width="6.5" height="6.5" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+        <rect width="6.5" height="6.5" fill="#D7E4EE"></rect>
+        <circle cx="1.8" cy="1.8" r="1.55" fill="#ffffff"></circle>
+        <circle cx="1.8" cy="1.8" r="0.48" fill="#aecbe0"></circle>
+        <circle cx="5" cy="4.4" r="1.2" fill="#f3f8fb"></circle>
+        <circle cx="5" cy="4.4" r="0.36" fill="#9fc0d8"></circle>
       </pattern>
     </defs>
-    <text x="160" y="62" text-anchor="middle" font-family="Playfair Display, serif" font-weight="900" font-size="78" fill="none" stroke="#FFB612" stroke-width="5">The Blitz</text>
-    <text x="160" y="62" text-anchor="middle" class="endzone-letters silver" font-size="78" fill="url(#ezDiamondSilver)">The Blitz</text>
+    <text x="220" y="78" text-anchor="middle" font-family="Playfair Display, serif" font-weight="900" font-size="56" fill="none" stroke="#FFB612" stroke-width="5">The Blitz</text>
+    <text x="220" y="78" text-anchor="middle" class="endzone-letters silver" font-size="56" fill="url(#ezDiamondSilver)">The Blitz</text>
   </svg>
 </div>
 
