@@ -1302,16 +1302,30 @@ const App = {
   },
   async logout(){ await sb.auth.signOut(); session = {}; view = 'login'; draft = null; render(); },
 
-  setWinner(gameId, side){ if (!draft.gamePicks[gameId]) draft.gamePicks[gameId] = { winner: null, value: null }; draft.gamePicks[gameId].winner = side; if (draft.omitGameId === gameId) draft.omitGameId = null; render(); },
+  setWinner(gameId, side){
+    if (!draft.gamePicks[gameId]) draft.gamePicks[gameId] = { winner: null, value: null };
+    if (draft.gamePicks[gameId].winner === side){
+      draft.gamePicks[gameId].winner = null;
+      draft.gamePicks[gameId].value = null;
+    } else {
+      draft.gamePicks[gameId].winner = side;
+      if (draft.omitGameId === gameId) draft.omitGameId = null;
+    }
+    render();
+  },
   toggleHammerMode(){
     hammerMode = !hammerMode;
     draft.gamePicks = {}; draft.omitGameId = null;
     render();
   },
-  setHammerWinner(gameId, side){ draft.gamePicks = { [gameId]: { winner: side, value: 55 } }; render(); },
+  setHammerWinner(gameId, side){
+    if (draft.gamePicks[gameId] && draft.gamePicks[gameId].winner === side) draft.gamePicks = {};
+    else draft.gamePicks = { [gameId]: { winner: side, value: 55 } };
+    render();
+  },
   setValue(gameId, val){ const v = val ? parseInt(val,10) : null; if (!draft.gamePicks[gameId]) draft.gamePicks[gameId] = { winner: null, value: null }; draft.gamePicks[gameId].value = v; render(); },
   toggleSkip(gameId){ draft.omitGameId = (draft.omitGameId === gameId) ? null : gameId; if (draft.omitGameId === gameId) delete draft.gamePicks[gameId]; render(); },
-  setTbWinner(side){ draft.tiebreaker = draft.tiebreaker || {}; draft.tiebreaker.winner = side; render(); },
+  setTbWinner(side){ draft.tiebreaker = draft.tiebreaker || {}; draft.tiebreaker.winner = (draft.tiebreaker.winner === side ? null : side); render(); },
   setTiebreakTotal(val){ draft.tiebreaker = draft.tiebreaker || {}; draft.tiebreaker.total = val === '' ? null : parseInt(val,10); },
 
   async submitPicks(){
