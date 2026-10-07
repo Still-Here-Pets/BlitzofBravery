@@ -665,7 +665,7 @@ function renderBoard(){
         '</div></div>';
     } else {
       html += '<div class="card" style="margin-bottom:10px;">' +
-        '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong> <span class="muted">' + timeAgo(m.createdAt) + (m.editedAt ? ' (edited)' : '') + '</span></div>' +
+        '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong>' + champBadge(m.playerId) + ' <span class="muted">' + timeAgo(m.createdAt) + (m.editedAt ? ' (edited)' : '') + '</span></div>' +
         (mine ? '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.startEdit(\'' + m.id + '\')">Edit</button><button class="btn" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button></div>' : '') +
         '</div><div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div></div>';
     }
@@ -820,6 +820,10 @@ function teamBtn(g, side, selected, disabled, isTb, isHammer){
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
 function toLocalInputValue(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; const pad = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }
 
+function champBadge(pid){
+  const notes = STATE.players[pid] && STATE.players[pid].championNotes;
+  return notes ? ' <span class="badge" title="Champion history">&#127942; ' + esc(notes) + '</span>' : '';
+}
 function rankedTable(rows, valueKey, prizeAmounts){
   const showPrize = !!prizeAmounts;
   let html = '<table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
@@ -837,7 +841,7 @@ function rankedTable(rows, valueKey, prizeAmounts){
         prizeRank++;
       }
     }
-    html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + (r.tag && r.eligible!==false ? ' <span class="muted">' + esc(r.tag) + '</span>' : '') + '</td>' +
+    html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag && r.eligible!==false ? ' <span class="muted">' + esc(r.tag) + '</span>' : '') + '</td>' +
       '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table>';
@@ -906,7 +910,7 @@ function renderStandings(){
     let moneyRows = players.map(pid => ({ pid, name: STATE.players[pid].displayName, won: moneyTotals[pid]||0 })).filter(r => r.won > 0);
     moneyRows.sort((a,b) => b.won - a.won);
     html += '<table><thead><tr><th>#</th><th>Player</th><th class="num">Won</th></tr></thead><tbody>';
-    moneyRows.forEach((r,i) => { html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + '</td><td class="num">$' + r.won + '</td></tr>'; });
+    moneyRows.forEach((r,i) => { html += '<tr><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + '</td><td class="num">$' + r.won + '</td></tr>'; });
     html += '</tbody></table>';
   }
 
@@ -944,10 +948,10 @@ function renderSurvivorBoard(pointValue, title, playerIds){
     '<p class="muted" style="margin-bottom:10px;">Stay alive as long as your Week-by-week ' + pointValue + '-point pick keeps winning. One loss and you\'re out for the season.' + (prize!=null ? ' Whoever\'s still standing at the end wins $' + prize + '.' : '') + '</p>';
   html += '<div class="muted" style="font-weight:700;margin-bottom:4px;">STILL ALIVE (' + alive.length + ')</div>';
   if (!alive.length) html += '<div class="empty">Nobody left.</div>';
-  else html += alive.map(r => '<span class="badge good" style="margin:2px 4px 2px 0;display:inline-block;">' + esc(r.name) + '</span>').join('');
+  else html += alive.map(r => '<span class="badge good" style="margin:2px 4px 2px 0;display:inline-block;">' + esc(r.name) + '</span>' + champBadge(r.pid)).join('');
   if (out.length){
     html += '<div class="muted" style="font-weight:700;margin:12px 0 4px;">ELIMINATED</div><table><tbody>';
-    out.forEach(r => { html += '<tr><td>' + esc(r.name) + '</td><td class="muted">Week ' + r.status.eliminatedWeek + ' — ' + esc(r.status.reason) + '</td></tr>'; });
+    out.forEach(r => { html += '<tr><td>' + esc(r.name) + champBadge(r.pid) + '</td><td class="muted">Week ' + r.status.eliminatedWeek + ' — ' + esc(r.status.reason) + '</td></tr>'; });
     html += '</tbody></table>';
   }
   return html;
