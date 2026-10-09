@@ -185,6 +185,8 @@
   label:first-child { margin-top: 0; }
   .row { display: flex; gap: 10px; } .row > * { flex: 1; }
   .game-row { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+  .game-row.hammer-eligible { border: 2px solid var(--gold); background: color-mix(in srgb, var(--gold) 10%, var(--bg)); box-shadow: 0 0 0 1px var(--gold), 0 2px 8px color-mix(in srgb, var(--gold) 25%, transparent); }
+  .hammer-flag { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-size: 11px; letter-spacing: 0.03em; color: #201800; background: var(--gold); padding: 2px 8px; border-radius: 999px; }
   .game-row.skipped { opacity: 0.55; }
   .game-row.tiebreaker { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 8%, var(--bg-elevated)); }
   .game-meta { font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
@@ -787,8 +789,9 @@ function renderPicks(){
     const pick = draft.gamePicks[g.id] || {};
     const isHammerGame = w.hammerGameId === g.id;
     if (!locked){
-      html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
-        '<div class="game-meta"><span>' + esc(g.league||'') + (isHammerGame?' · hammer game available':'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+      html += '<div class="game-row ' + (isSkipped?'skipped':'') + (isHammerGame&&!isSkipped?' hammer-eligible':'') + '">' +
+        (isHammerGame ? '<div class="hammer-flag" style="margin-bottom:8px;">⚡ HAMMER GAME AVAILABLE</div>' : '') +
+        '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
         '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped) + teamBtn(g,'home', pick.winner==='home', isSkipped) + '</div>' +
         '<div class="game-controls">' +
           '<select ' + (isSkipped||!pick.winner?'disabled':'') + ' onchange="App.setValue(\'' + g.id + '\', this.value)">' +
@@ -1491,6 +1494,7 @@ const App = {
       }
       await loadOwnPick(wk, session.playerId);
       render();
+      alert('Your picks for Week ' + wk + ' have been submitted! You can still make changes any time before the week locks.');
     } catch(e){ showError(e); }
   },
 
