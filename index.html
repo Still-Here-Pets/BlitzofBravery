@@ -490,7 +490,7 @@ async function loadOwnPick(wk, playerId){
 async function loadProfiles(){
   const { data } = await sb.from('profiles').select('*');
   STATE.players = {};
-  (data||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes }; });
+  (data||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes, hammerUsed: p.hammer_used }; });
 }
 async function loadScheduleCache(){
   const { data } = await sb.from('schedule_cache').select('*').order('kickoff', { ascending: true });
@@ -1143,6 +1143,9 @@ function renderAdminEditPicks(players){
     const regular = w.games.filter(g => !g.isTiebreaker);
     const tb = w.games.find(g => g.isTiebreaker);
     const hammerGame = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
+    const wasHammerThisWeek = !!(adminEditExisting && adminEditExisting.is_hammer);
+    const usedElsewhere = STATE.players[adminEditPlayerId] && STATE.players[adminEditPlayerId].hammerUsed && !wasHammerThisWeek;
+    if (usedElsewhere) html += '<p class="muted">⚠️ ' + esc(pName) + ' has already used their Hammer this season on another week.</p>';
     html += '<button class="btn ' + (adminEditHammerMode?'btn-primary':'') + '" style="margin-bottom:10px;" onclick="App.adminToggleHammerMode()">' + (adminEditHammerMode ? '⚡ Hammer mode ON for this edit — tap to go back to normal picks' : '⚡ Set this as a Hammer week for this player') + '</button>';
 
     if (adminEditHammerMode && hammerGame){
@@ -1718,8 +1721,13 @@ const App = {
     if (tb && (!adminEditDraft.tiebreaker || !adminEditDraft.tiebreaker.winner || adminEditDraft.tiebreaker.total == null || adminEditDraft.tiebreaker.total === '' || isNaN(adminEditDraft.tiebreaker.total))){
       alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return;
     }
+    const displayName = STATE.players[adminEditPlayerId] ? STATE.players[adminEditPlayerId].displayName : '';
+    const wasHammerThisWeek = !!(adminEditExisting && adminEditExisting.is_hammer);
+    const alreadyUsedElsewhere = STATE.players[adminEditPlayerId] && STATE.players[adminEditPlayerId].hammerUsed && !wasHammerThisWeek;
+    if (adminEditHammerMode && alreadyUsedElsewhere){
+      if (!confirm(displayName + ' has already used their Hammer this season on another week. Setting it here too will let them use it a second time. Continue anyway?')) return;
+    }
     try {
-      const displayName = STATE.players[adminEditPlayerId] ? STATE.players[adminEditPlayerId].displayName : '';
       const { error } = await sb.from('picks').upsert({
         week_number: adminEditWeek, player_id: adminEditPlayerId, display_name: displayName,
         game_picks: adminEditDraft.gamePicks, omit_game_id: adminEditHammerMode ? null : adminEditDraft.omitGameId,
@@ -1728,6 +1736,14 @@ const App = {
         is_hammer: adminEditHammerMode, is_insurance: adminEditExisting ? !!adminEditExisting.is_insurance : false
       });
       if (error) throw error;
+      const wasUsed = STATE.players[adminEditPlayerId] && STATE.players[adminEditPlayerId].hammerUsed;
+      if (adminEditHammerMode && !wasUsed){
+        await sb.from('profiles').update({ hammer_used: true }).eq('id', adminEditPlayerId);
+      } else if (!adminEditHammerMode && wasHammerThisWeek){
+        await sb.from('profiles').update({ hammer_used: false }).eq('id', adminEditPlayerId);
+      }
+      await loadProfiles();
+      if (adminEditPlayerId === session.playerId) session.hammerUsed = STATE.players[session.playerId].hammerUsed;
       showToast('Picks saved for ' + displayName + '.');
       App.adminCancelEdit();
     } catch(e){ showError(e); }
