@@ -766,18 +766,14 @@ function renderPicks(){
   else if (hammerMode) html += '<div class="banner" style="margin-top:14px;background:color-mix(in srgb, var(--gold) 18%, var(--bg-elevated));border-color:var(--gold);">⚡ Seau\'s Hammer is ON — all 55 points ride on the hammer game below. You can only use this once all season, and you can\'t win the weekly 1st/2nd/3rd prize on a hammer week.</div>';
   else html += '<p class="muted" style="margin-top:14px;">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Skip exactly one game. Then set your Monday-night tiebreaker.</p>';
   if (existing && existing.isInsurance) html += '<div class="banner">This week was auto-filled by Insurance (picks weren\'t submitted in time). These points still count, but this week is not eligible for the weekly prize.</div>';
-  if (!locked && hammerAvailable){
-    html += '<button class="btn ' + (hammerMode?'btn-primary':'') + '" style="margin-bottom:10px;" onclick="App.toggleHammerMode()">' + (hammerMode ? '⚡ Hammer mode ON — tap to go back to normal picks' : '⚡ Use Seau\'s Hammer this week') + '</button>';
-  } else if (!locked && hammerGame && session.hammerUsed){
-    html += '<p class="muted" style="margin-top:-6px;">⚡ You\'ve already used Seau\'s Hammer this season.</p>';
-  }
   if (existing) html += renderPointsSummary(wk, regular);
 
   if (hammerMode && hammerGame && !locked){
     const pick = draft.gamePicks[hammerGame.id] || {};
     html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffLabel(hammerGame.kickoff) + '</span></div>' +
       '<div class="pick-buttons">' + teamBtn(hammerGame,'away', pick.winner==='away', false, false, true) + teamBtn(hammerGame,'home', pick.winner==='home', false, false, true) + '</div>' +
-      '<div class="muted">All 55 points go on this pick.</div></div>';
+      '<div class="muted" style="margin-bottom:8px;">All 55 points go on this pick.</div>' +
+      '<button class="btn" onclick="App.toggleHammerMode()">⚡ Hammer mode ON — tap to go back to normal picks</button></div>';
   } else if (hammerMode && existing && existing.isHammer && locked){
     const pick = draft.gamePicks[hammerGame ? hammerGame.id : Object.keys(draft.gamePicks)[0]] || Object.values(draft.gamePicks)[0] || {};
     const hg = hammerGame || w.games.find(g => draft.gamePicks[g.id]);
@@ -792,6 +788,8 @@ function renderPicks(){
       html += '<div class="game-row ' + (isSkipped?'skipped':'') + (isHammerGame&&!isSkipped?' hammer-eligible':'') + '">' +
         (isHammerGame ? '<div class="hammer-flag" style="margin-bottom:8px;">⚡ HAMMER GAME AVAILABLE</div>' : '') +
         '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+        (isHammerGame && hammerAvailable ? '<button class="btn btn-primary btn-block" style="margin-bottom:10px;" onclick="App.toggleHammerMode()">⚡ Use Seau\'s Hammer on this game</button>' : '') +
+        (isHammerGame && !hammerAvailable && session.hammerUsed ? '<p class="muted" style="margin:-2px 0 10px;">⚡ You\'ve already used Seau\'s Hammer this season.</p>' : '') +
         '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped) + teamBtn(g,'home', pick.winner==='home', isSkipped) + '</div>' +
         '<div class="game-controls">' +
           '<select ' + (isSkipped||!pick.winner?'disabled':'') + ' onchange="App.setValue(\'' + g.id + '\', this.value)">' +
