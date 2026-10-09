@@ -766,6 +766,8 @@ function renderPicks(){
   if (existing && existing.isInsurance) html += '<div class="banner">This week was auto-filled by Insurance (picks weren\'t submitted in time). These points still count, but this week is not eligible for the weekly prize.</div>';
   if (!locked && hammerAvailable){
     html += '<button class="btn ' + (hammerMode?'btn-primary':'') + '" style="margin-bottom:10px;" onclick="App.toggleHammerMode()">' + (hammerMode ? '⚡ Hammer mode ON — tap to go back to normal picks' : '⚡ Use Seau\'s Hammer this week') + '</button>';
+  } else if (!locked && hammerGame && session.hammerUsed){
+    html += '<p class="muted" style="margin-top:-6px;">⚡ You\'ve already used Seau\'s Hammer this season.</p>';
   }
   if (existing) html += renderPointsSummary(wk, regular);
 
