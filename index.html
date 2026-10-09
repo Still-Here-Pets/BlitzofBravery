@@ -390,6 +390,13 @@ let standingsViewWeek = null;
 let standingsSearch = '';
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
+let adminEditPlayerId = null;
+let adminEditWeek = null;
+let adminEditDraft = null;
+let adminEditHammerMode = false;
+let adminEditExisting = null;
+// Isolated client for admin-created signups so it never touches the admin's own logged-in session.
+const sbSignupClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 
 const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
 
@@ -827,9 +834,11 @@ function ptsBadge(value, gameWinner, pickWinner){
   return '<span class="badge gold pts-badge" style="' + style + '">' + value + ' pts</span>';
 }
 function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge missed">Missed</span>'; }
-function teamBtn(g, side, selected, disabled, isTb, isHammer){
+function teamBtn(g, side, selected, disabled, isTb, isHammer, adminMode){
   const name = side === 'away' ? g.away : g.home;
-  const fn = isTb ? "App.setTbWinner('" + side + "')" : (isHammer ? "App.setHammerWinner('" + g.id + "','" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')");
+  const fn = adminMode
+    ? (isTb ? "App.adminSetTbWinner('" + side + "')" : (isHammer ? "App.adminSetHammerWinner('" + g.id + "','" + side + "')" : "App.adminSetWinner('" + g.id + "','" + side + "')"))
+    : (isTb ? "App.setTbWinner('" + side + "')" : (isHammer ? "App.setHammerWinner('" + g.id + "','" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')"));
   return '<button class="pick-btn ' + (selected?'selected':'') + '" ' + (disabled?'disabled':'') + ' onclick="' + (disabled?'':fn) + '">' + esc(name) + '</button>';
 }
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
@@ -1093,6 +1102,13 @@ function renderAdmin(){
     '<div><label>1-pt Survivor prize</label><input id="pay-sv1" type="number" value="' + (STATE.meta.survivor1pt??'') + '"></div></div>' +
     '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.savePayouts()">Save Payouts</button></div>';
 
+  html += '<div class="card"><h3 style="margin-top:0;">Add a Player</h3>' +
+    '<p class="muted" style="margin-top:-6px;">Create an account on someone\'s behalf. Give them the email and temporary password below so they can log in (they can change the password later from Profile).</p>' +
+    '<div class="row"><input id="ap-first" placeholder="First name"><input id="ap-last" placeholder="Last name"></div>' +
+    '<label>Email</label><input id="ap-email" type="email" placeholder="name@example.com">' +
+    '<label>Temporary password</label><input id="ap-pass" type="text" placeholder="At least 6 characters">' +
+    '<button class="btn btn-primary btn-block" id="ap-btn" style="margin-top:10px;" onclick="App.adminCreatePlayer()">Create Account</button></div>';
+
   const players = Object.entries(STATE.players).sort((a,b) => a[1].displayName.localeCompare(b[1].displayName));
   html += '<div class="card"><h3 style="margin-top:0;">Players (' + players.length + ')</h3>' +
     '<p class="muted" style="margin-top:-6px;">Tap "Make Admin" to let someone else pick each week\'s games alongside you.</p>';
@@ -1102,6 +1118,70 @@ function renderAdmin(){
       '<button class="btn" style="flex:0 0 auto;" onclick="App.toggleAdmin(\'' + pid + '\')">' + (p.isAdmin ? 'Remove Admin' : 'Make Admin') + '</button></div>';
   });
   html += '</div>';
+  html += renderAdminEditPicks(players);
+  return html;
+}
+
+function renderAdminEditPicks(players){
+  let html = '<div class="card"><h3 style="margin-top:0;">Edit a Player\'s Picks</h3>' +
+    '<p class="muted" style="margin-top:-6px;">Fix a mistake or enter picks for someone who texted them to you. This overrides whatever they\'d submitted, locked or not.</p>' +
+    '<label>Player</label><select id="aep-player">' +
+    '<option value="">Select a player…</option>' +
+    players.map(([pid,p]) => '<option value="' + pid + '" ' + (adminEditPlayerId===pid?'selected':'') + '>' + esc(p.displayName) + '</option>').join('') +
+    '</select>' +
+    '<label>Week</label><select id="aep-week">' + weekOptions(adminEditWeek != null ? adminEditWeek : STATE.meta.currentWeek) + '</select>' +
+    '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.adminLoadPlayerPicks()">Load Picks</button></div>';
+
+  if (adminEditDraft){
+    const w = getWeek(adminEditWeek);
+    const pName = STATE.players[adminEditPlayerId] ? STATE.players[adminEditPlayerId].displayName : '';
+    html += '<div class="card"><h3 style="margin-top:0;">Editing: ' + esc(pName) + ' — Week ' + esc(adminEditWeek) + '</h3>';
+    if (!w || !w.games || !w.games.length){
+      html += '<div class="empty">No games posted for this week.</div></div>';
+      return html;
+    }
+    const regular = w.games.filter(g => !g.isTiebreaker);
+    const tb = w.games.find(g => g.isTiebreaker);
+    const hammerGame = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
+    html += '<button class="btn ' + (adminEditHammerMode?'btn-primary':'') + '" style="margin-bottom:10px;" onclick="App.adminToggleHammerMode()">' + (adminEditHammerMode ? '⚡ Hammer mode ON for this edit — tap to go back to normal picks' : '⚡ Set this as a Hammer week for this player') + '</button>';
+
+    if (adminEditHammerMode && hammerGame){
+      const pick = adminEditDraft.gamePicks[hammerGame.id] || {};
+      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffLabel(hammerGame.kickoff) + '</span></div>' +
+        '<div class="pick-buttons">' + teamBtn(hammerGame,'away', pick.winner==='away', false, false, true, true) + teamBtn(hammerGame,'home', pick.winner==='home', false, false, true, true) + '</div>' +
+        '<div class="muted">All 55 points go on this pick.</div></div>';
+    } else if (adminEditHammerMode && !hammerGame){
+      html += '<div class="empty">No Hammer game is set for this week — set one in the Week Games section above first.</div>';
+    } else {
+      const usedValues = new Set(Object.values(adminEditDraft.gamePicks).map(p => p.value).filter(v => v != null));
+      regular.forEach(g => {
+        const isSkipped = adminEditDraft.omitGameId === g.id;
+        const pick = adminEditDraft.gamePicks[g.id] || {};
+        html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
+          '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+          '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped, false, false, true) + teamBtn(g,'home', pick.winner==='home', isSkipped, false, false, true) + '</div>' +
+          '<div class="game-controls">' +
+            '<select ' + (isSkipped||!pick.winner?'disabled':'') + ' onchange="App.adminSetValue(\'' + g.id + '\', this.value)">' +
+              '<option value="">Value…</option>' +
+              [1,2,3,4,5,6,7,8,9,10].filter(v => !usedValues.has(v) || v===pick.value).map(v => '<option value="'+v+'" ' + (pick.value===v?'selected':'') + '>' + v + '</option>').join('') +
+            '</select>' +
+            '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.adminToggleSkip(\'' + g.id + '\')">' + (isSkipped?'Skipped':'Skip') + '</button></div>' +
+        '</div>';
+      });
+    }
+    if (tb){
+      const tbp = adminEditDraft.tiebreaker || {};
+      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + '</span></div>' +
+        '<div class="pick-buttons">' + teamBtn(tb,'away', tbp.winner==='away', false, true, false, true) + teamBtn(tb,'home', tbp.winner==='home', false, true, false, true) + '</div>' +
+        '<label style="margin-top:8px;">Predicted combined final score (both teams)</label>' +
+        '<input type="number" min="0" inputmode="numeric" value="' + esc(tbp.total==null?'':tbp.total) + '" oninput="App.adminSetTiebreakTotal(this.value)">' +
+      '</div>';
+    }
+    html += '<div class="row" style="margin-top:10px;">' +
+      '<button class="btn btn-primary" onclick="App.adminSavePicks()">Save Picks</button>' +
+      '<button class="btn" onclick="App.adminCancelEdit()">Cancel</button></div>';
+    html += '</div>';
+  }
   return html;
 }
 
@@ -1529,6 +1609,124 @@ const App = {
     const p = STATE.players[pid];
     try { await sb.from('profiles').update({ is_admin: !p.isAdmin }).eq('id', pid); await loadProfiles(); render(); }
     catch(e){ showError(e); }
+  },
+  async adminCreatePlayer(){
+    const first = (document.getElementById('ap-first').value||'').trim();
+    const last = (document.getElementById('ap-last').value||'').trim();
+    const email = (document.getElementById('ap-email').value||'').trim();
+    const pass = document.getElementById('ap-pass').value;
+    const btn = document.getElementById('ap-btn');
+    if (!first || !last){ alert('Enter a first and last name.'); return; }
+    if (!email || !email.includes('@')){ alert('Enter a valid email address.'); return; }
+    if (!pass || pass.length < 6){ alert('Set a temporary password of at least 6 characters.'); return; }
+    const displayName = first + ' ' + last;
+    btn.disabled = true; btn.textContent = 'Creating…';
+    try {
+      const { data, error } = await sbSignupClient.auth.signUp({ email, password: pass });
+      if (error) throw error;
+      if (!data.user){ alert('Could not create the account. Check Supabase email confirmation settings.'); return; }
+      const { error: profErr } = await sb.from('profiles').insert({ id: data.user.id, display_name: displayName });
+      if (profErr) throw profErr;
+      await sbSignupClient.auth.signOut();
+      await loadProfiles();
+      showToast('Account created for ' + displayName + '.');
+      alert('Account created.\n\nEmail: ' + email + '\nTemporary password: ' + pass + '\n\nShare these with ' + displayName + ' so they can log in. They can change the password from Profile once they\'re in, and can use "Find my past picks" there to claim any prior-season history.');
+      document.getElementById('ap-first').value = '';
+      document.getElementById('ap-last').value = '';
+      document.getElementById('ap-email').value = '';
+      document.getElementById('ap-pass').value = '';
+    } catch(e){ showError(e); }
+    finally { btn.disabled = false; btn.textContent = 'Create Account'; }
+  },
+  async adminLoadPlayerPicks(){
+    const pid = document.getElementById('aep-player').value;
+    const wk = parseInt(document.getElementById('aep-week').value, 10);
+    if (!pid){ alert('Select a player first.'); return; }
+    try {
+      const { data, error } = await sb.from('picks').select('*').eq('player_id', pid).eq('week_number', wk).maybeSingle();
+      if (error) throw error;
+      adminEditPlayerId = pid;
+      adminEditWeek = wk;
+      adminEditExisting = data || null;
+      adminEditDraft = data
+        ? { gamePicks: data.game_picks || {}, omitGameId: data.omit_game_id || null, tiebreaker: data.tiebreaker || { winner: null, total: '' } }
+        : { gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
+      adminEditHammerMode = data ? !!data.is_hammer : false;
+      render();
+    } catch(e){ showError(e); }
+  },
+  adminSetWinner(gameId, side){
+    if (!adminEditDraft.gamePicks[gameId]) adminEditDraft.gamePicks[gameId] = { winner: null, value: null };
+    if (adminEditDraft.gamePicks[gameId].winner === side){
+      adminEditDraft.gamePicks[gameId].winner = null;
+      adminEditDraft.gamePicks[gameId].value = null;
+    } else {
+      adminEditDraft.gamePicks[gameId].winner = side;
+      if (adminEditDraft.omitGameId === gameId) adminEditDraft.omitGameId = null;
+    }
+    render();
+  },
+  adminSetValue(gameId, val){
+    const v = val ? parseInt(val,10) : null;
+    if (!adminEditDraft.gamePicks[gameId]) adminEditDraft.gamePicks[gameId] = { winner: null, value: null };
+    adminEditDraft.gamePicks[gameId].value = v;
+    render();
+  },
+  adminToggleSkip(gameId){
+    adminEditDraft.omitGameId = adminEditDraft.omitGameId === gameId ? null : gameId;
+    render();
+  },
+  adminSetHammerWinner(gameId, side){
+    if (adminEditDraft.gamePicks[gameId] && adminEditDraft.gamePicks[gameId].winner === side) adminEditDraft.gamePicks = {};
+    else adminEditDraft.gamePicks = { [gameId]: { winner: side, value: 55 } };
+    render();
+  },
+  adminSetTbWinner(side){
+    adminEditDraft.tiebreaker = adminEditDraft.tiebreaker || {};
+    adminEditDraft.tiebreaker.winner = (adminEditDraft.tiebreaker.winner === side ? null : side);
+    render();
+  },
+  adminSetTiebreakTotal(val){
+    adminEditDraft.tiebreaker = adminEditDraft.tiebreaker || {};
+    adminEditDraft.tiebreaker.total = val === '' ? '' : parseInt(val,10);
+  },
+  adminToggleHammerMode(){ adminEditHammerMode = !adminEditHammerMode; render(); },
+  async adminSavePicks(){
+    const w = getWeek(adminEditWeek);
+    const regular = w.games.filter(g => !g.isTiebreaker);
+    const tb = w.games.find(g => g.isTiebreaker);
+    if (adminEditHammerMode){
+      const hg = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
+      if (!hg){ alert('No hammer game is set for this week.'); return; }
+      const p = adminEditDraft.gamePicks[hg.id];
+      if (!p || !p.winner){ alert('Pick a winner for the hammer game.'); return; }
+    } else {
+      if (!adminEditDraft.omitGameId){ alert('Pick one game to skip (10 of 11 are played).'); return; }
+      const toScore = regular.filter(g => g.id !== adminEditDraft.omitGameId);
+      for (const g of toScore){ const p = adminEditDraft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: a winner and a confidence value for all games except the one skip.'); return; } }
+      const usedVals = toScore.map(g => adminEditDraft.gamePicks[g.id].value).sort((a,b)=>a-b);
+      if (JSON.stringify(usedVals) !== JSON.stringify([1,2,3,4,5,6,7,8,9,10])){ alert('Each confidence value 1–10 must be used exactly once.'); return; }
+    }
+    if (tb && (!adminEditDraft.tiebreaker || !adminEditDraft.tiebreaker.winner || adminEditDraft.tiebreaker.total == null || adminEditDraft.tiebreaker.total === '' || isNaN(adminEditDraft.tiebreaker.total))){
+      alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return;
+    }
+    try {
+      const displayName = STATE.players[adminEditPlayerId] ? STATE.players[adminEditPlayerId].displayName : '';
+      const { error } = await sb.from('picks').upsert({
+        week_number: adminEditWeek, player_id: adminEditPlayerId, display_name: displayName,
+        game_picks: adminEditDraft.gamePicks, omit_game_id: adminEditHammerMode ? null : adminEditDraft.omitGameId,
+        tiebreaker: adminEditDraft.tiebreaker ? { winner: adminEditDraft.tiebreaker.winner, total: adminEditDraft.tiebreaker.total } : null,
+        submitted_at: new Date().toISOString(),
+        is_hammer: adminEditHammerMode, is_insurance: adminEditExisting ? !!adminEditExisting.is_insurance : false
+      });
+      if (error) throw error;
+      showToast('Picks saved for ' + displayName + '.');
+      App.adminCancelEdit();
+    } catch(e){ showError(e); }
+  },
+  adminCancelEdit(){
+    adminEditPlayerId = null; adminEditWeek = null; adminEditDraft = null; adminEditExisting = null; adminEditHammerMode = false;
+    render();
   }
 };
 window.App = new Proxy(App, {
