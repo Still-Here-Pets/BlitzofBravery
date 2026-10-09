@@ -823,7 +823,10 @@ function renderPicks(){
         renderScorecard(tb, tbp.winner, false, foot);
     }
   }
-  if (!locked) html += '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.submitPicks()">' + (existing?'Update Picks':'Submit Picks') + '</button>';
+  if (!locked){
+    html += '<button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="App.submitPicks()">' + (existing?'Update Picks':'Submit Picks') + '</button>';
+    html += '<button class="btn btn-block" style="margin-top:8px;" onclick="App.resetPicks()">Reset Picks</button>';
+  }
 
   return html;
 }
@@ -1431,6 +1434,14 @@ const App = {
       draft.gamePicks[gameId].winner = side;
       if (draft.omitGameId === gameId) draft.omitGameId = null;
     }
+    render();
+  },
+  resetPicks(){
+    if (!confirm('Clear every pick you\'ve made for this week and start over? This can\'t be undone.')) return;
+    draft.gamePicks = {};
+    draft.omitGameId = null;
+    draft.tiebreaker = { winner: null, total: '' };
+    hammerMode = false;
     render();
   },
   toggleHammerMode(){
