@@ -1428,7 +1428,15 @@ const App = {
     render();
   },
   toggleHammerMode(){
-    hammerMode = !hammerMode;
+    const hasExistingPicks = Object.keys(draft.gamePicks).length > 0 || draft.omitGameId;
+    const turningOn = !hammerMode;
+    if (hasExistingPicks){
+      const msg = turningOn
+        ? 'Switching to Seau\'s Hammer will erase all the picks you\'ve made for this week so far. Continue?'
+        : 'Switching back to normal picks will erase your Hammer pick. Continue?';
+      if (!confirm(msg)) return;
+    }
+    hammerMode = turningOn;
     draft.gamePicks = {}; draft.omitGameId = null;
     render();
   },
