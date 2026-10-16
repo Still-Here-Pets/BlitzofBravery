@@ -200,6 +200,7 @@
   .pick-btn { flex: 1; padding: 12px 8px; border-radius: 10px; border: 2px solid var(--border); background: var(--bg); color: var(--ink); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; }
   .pick-btn.selected { border-color: var(--gold); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 28%, var(--bg)), color-mix(in srgb, var(--gold) 16%, var(--bg))); color: var(--ink); }
   .pick-team-name { display: block; }
+  .pick-team-rank { color: var(--gold); font-weight: 800; }
   .pick-team-record { display: block; font-size: 11px; font-weight: 500; opacity: 0.65; margin-top: 2px; }
   .game-controls { display: flex; gap: 8px; align-items: center; } .game-controls select { flex: 1; }
   .skip-btn { font-size: 12px; padding: 8px 10px; white-space: nowrap; }
@@ -1120,7 +1121,7 @@ function scheduleInfo(g){
       else if (team === norm(g.home)) homeRecord = m[2];
     });
   }
-  return { awayRecord, homeRecord, spread: row.spread || '' };
+  return { awayRecord, homeRecord, spread: row.spread || '', awayRank: row.away_rank || null, homeRank: row.home_rank || null };
 }
 function kickoffSpread(g){
   const info = scheduleInfo(g);
@@ -1130,11 +1131,12 @@ function teamBtn(g, side, selected, disabled, isTb, isHammer, adminMode){
   const name = side === 'away' ? g.away : g.home;
   const info = scheduleInfo(g);
   const record = info ? (side === 'away' ? info.awayRecord : info.homeRecord) : '';
+  const rank = info ? (side === 'away' ? info.awayRank : info.homeRank) : null;
   const fn = adminMode
     ? (isTb ? "App.adminSetTbWinner('" + side + "')" : (isHammer ? "App.adminSetHammerWinner('" + g.id + "','" + side + "')" : "App.adminSetWinner('" + g.id + "','" + side + "')"))
     : (isTb ? "App.setTbWinner('" + side + "')" : (isHammer ? "App.setHammerWinner('" + g.id + "','" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')"));
   return '<button class="pick-btn ' + (selected?'selected':'') + '" ' + (disabled?'disabled':'') + ' onclick="' + (disabled?'':fn) + '">' +
-    '<span class="pick-team-name">' + esc(name) + '</span>' + (record ? '<span class="pick-team-record">' + esc(record) + '</span>' : '') +
+    '<span class="pick-team-name">' + (rank ? '<span class="pick-team-rank">#' + rank + '</span> ' : '') + esc(name) + '</span>' + (record ? '<span class="pick-team-record">' + esc(record) + '</span>' : '') +
   '</button>';
 }
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
@@ -1343,7 +1345,7 @@ function renderScheduleBrowser(){
     const isTb = scheduleTiebreakerId === r.id;
     const isMonday = gameDayET(r.kickoff) === mondayDate;
     html += '<div class="sched-row" style="flex-direction:column;align-items:stretch;gap:6px;">' +
-      '<div><div>' + esc(r.league) + ': ' + esc(r.away) + ' @ ' + esc(r.home) + (r.records ? ' <span class="muted">(' + esc(r.records) + ')</span>' : '') + (isMonday?' <span class="badge gold">MNF</span>':'') + '</div>' +
+      '<div><div>' + esc(r.league) + ': ' + (r.away_rank ? '<strong class="pick-team-rank">#' + r.away_rank + '</strong> ' : '') + esc(r.away) + ' @ ' + (r.home_rank ? '<strong class="pick-team-rank">#' + r.home_rank + '</strong> ' : '') + esc(r.home) + (r.records ? ' <span class="muted">(' + esc(r.records) + ')</span>' : '') + (isMonday?' <span class="badge gold">MNF</span>':'') + '</div>' +
       '<div class="muted">' + kickoffLabel(r.kickoff) + (r.spread ? ' &middot; ' + esc(r.spread) : '') + '</div></div>' +
       '<div class="row">' +
         '<button class="btn ' + (isSel?'btn-primary':'') + '" onclick="App.toggleScheduleSelect(\'' + r.id + '\')">' + (isSel?'Selected ✓':'Select Game') + '</button>' +
