@@ -22,6 +22,11 @@ function parseEvents(json, league) {
     const odds = comp.odds && comp.odds[0];
     const awayRecord = (away.records && away.records[0] && away.records[0].summary) || null;
     const homeRecord = (home.records && home.records[0] && home.records[0].summary) || null;
+    // College games carry a curated AP/CFP rank per team (1-25); ESPN uses 99 for unranked.
+    const awayRankRaw = away.curatedRank && away.curatedRank.current;
+    const homeRankRaw = home.curatedRank && home.curatedRank.current;
+    const awayRank = (league === 'College' && awayRankRaw && awayRankRaw <= 25) ? awayRankRaw : null;
+    const homeRank = (league === 'College' && homeRankRaw && homeRankRaw <= 25) ? homeRankRaw : null;
     return {
       league,
       away: away.team.displayName,
@@ -34,6 +39,7 @@ function parseEvents(json, league) {
       spread: odds ? (odds.details || null) : null,
       overUnder: odds ? (odds.overUnder || null) : null,
       records: (awayRecord || homeRecord) ? (away.team.displayName + ' ' + (awayRecord||'?') + ', ' + home.team.displayName + ' ' + (homeRecord||'?')) : null,
+      awayRank, homeRank,
       liveDetail: (comp.status && comp.status.type && comp.status.type.shortDetail) || null
     };
   }).filter(Boolean);
@@ -70,7 +76,8 @@ module.exports = async (req, res) => {
           .eq('league', g.league).eq('away', g.away).eq('home', g.home);
         await sb.from('schedule_cache').insert({
           league: g.league, away: g.away, home: g.home, kickoff: g.kickoff,
-          spread: spreadText, records: g.records, week_label: 'Live sync'
+          spread: spreadText, records: g.records, week_label: 'Live sync',
+          away_rank: g.awayRank, home_rank: g.homeRank
         });
         if (g.league === 'NFL') results.nfl++; else results.cfb++;
         // fall through — still push current score into the real games table below
