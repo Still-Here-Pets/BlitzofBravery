@@ -406,13 +406,15 @@ let adminEditWeek = null;
 let adminEditDraft = null;
 let adminEditHammerMode = false;
 let adminEditExisting = null;
+let hofEditingId = null; // null = not editing, 'new' = new entry form, or an existing row's id
+let survivorExpanded = {}; // { [pointValue]: true } once a user taps "see who's still in"
 // Isolated client for admin-created signups so it never touches the admin's own logged-in session.
 const sbSignupClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 
 const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
 
 const FBS_TEAMS = ["Boston College","California","Clemson","Duke","Florida State","Georgia Tech","Louisville","Miami (FL)","NC State","North Carolina","Pittsburgh","SMU","Stanford","Syracuse","Virginia","Virginia Tech","Wake Forest","Army","Charlotte","East Carolina","Florida Atlantic","Memphis","Navy","North Texas","Rice","Temple","Tulane","Tulsa","UAB","USF","UTSA","Illinois","Indiana","Iowa","Maryland","Michigan","Michigan State","Minnesota","Nebraska","Northwestern","Ohio State","Oregon","Penn State","Purdue","Rutgers","UCLA","USC","Washington","Wisconsin","Delaware","FIU","Jacksonville State","Kennesaw State","Liberty","Middle Tennessee","Missouri State","New Mexico State","Sam Houston","Western Kentucky","Notre Dame","UConn","Akron","Ball State","Bowling Green","Buffalo","Central Michigan","Eastern Michigan","Kent State","Miami (OH)","Ohio","Sacramento State","Toledo","UMass","Western Michigan","Air Force","Hawai'i","Nevada","New Mexico","North Dakota State","Northern Illinois","San José State","UNLV","UTEP","Wyoming","Boise State","Colorado State","Fresno State","Oregon State","San Diego State","Texas State","Utah State","Washington State","Alabama","Arkansas","Auburn","Florida","Georgia","Kentucky","LSU","Mississippi State","Missouri","Oklahoma","Ole Miss","South Carolina","Tennessee","Texas","Texas A&M","Vanderbilt","Arizona","Arizona State","Baylor","BYU","Cincinnati","Colorado","Houston","Iowa State","Kansas","Kansas State","Oklahoma State","TCU","Texas Tech","UCF","Utah","West Virginia","Appalachian State","Coastal Carolina","Georgia Southern","Georgia State","James Madison","Marshall","Old Dominion","Arkansas State","Louisiana","Louisiana Tech","South Alabama","Southern Miss","Troy","ULM"];
-let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [], messages: {} };
+let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [], messages: {}, hallOfFame: [] };
 
 function pwField(id, placeholder){
   return '<div class="pw-wrap"><input id="' + id + '" type="password" placeholder="' + esc(placeholder||'') + '">' +
@@ -507,6 +509,10 @@ async function loadScheduleCache(){
   const { data } = await sb.from('schedule_cache').select('*').order('kickoff', { ascending: true });
   STATE.scheduleCache = data || [];
 }
+async function loadHallOfFame(){
+  const { data } = await sb.from('hall_of_fame').select('*').order('year', { ascending: false }).order('sort_order', { ascending: true });
+  STATE.hallOfFame = data || [];
+}
 
 function showError(e){ alert('Something went wrong: ' + (e && e.message ? e.message : e)); }
 let loadingDepth = 0;
@@ -551,6 +557,7 @@ function render(){
   else if (view === 'admin') body = renderAdmin();
   else if (view === 'profile') body = renderProfile();
   else if (view === 'board') body = renderBoard();
+  else if (view === 'hof') body = renderHallOfFame();
   app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
     '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>' +
     renderClaimModal();
@@ -588,7 +595,7 @@ function renderTopbar(){
   '</div>';
 }
 function renderTabs(){
-  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('board','Board') +
+  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('board','Board') + tabBtn('hof','Hall of Fame') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
     tabBtn('profile','Profile') + '</div>';
 }
@@ -702,6 +709,25 @@ function renderBoard(){
         (mine ? '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.startEdit(\'' + m.id + '\')">Edit</button><button class="btn" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button></div>' : '') +
         '</div><div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div></div>';
     }
+  });
+  return html;
+}
+function renderHallOfFame(){
+  const entries = STATE.hallOfFame || [];
+  let html = '<h3 style="margin:0 0 4px;">&#127942; Hall of Fame</h3>' +
+    '<p class="muted" style="margin-bottom:14px;">Champions and standout seasons from years past.</p>';
+  if (!entries.length){ html += '<div class="empty">No Hall of Fame entries yet.</div>'; return html; }
+  let lastYear = null;
+  entries.forEach(e => {
+    if (e.year !== lastYear){
+      html += '<h3 style="margin:' + (lastYear===null?'0':'18px') + ' 0 8px;color:var(--gold);">' + esc(e.year) + '</h3>';
+      lastYear = e.year;
+    }
+    html += '<div class="card" style="margin-bottom:10px;">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:16px;">' + esc(e.player_name) + '</strong>' +
+      (e.title ? '<span class="badge gold">' + esc(e.title) + '</span>' : '') + '</div>' +
+      (e.write_up ? '<div class="muted" style="margin-top:8px;white-space:pre-wrap;color:var(--ink);">' + esc(e.write_up) + '</div>' : '') +
+      '</div>';
   });
   return html;
 }
@@ -1247,8 +1273,9 @@ const App = {
           await loadScheduleCache();
           if (session.playerId) await loadOwnPick(wk, session.playerId);
         }
-        else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); }
+        else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); await loadHallOfFame(); }
         else if (v === 'board') { await loadBoardMessages(boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek); }
+        else if (v === 'hof') { await loadHallOfFame(); }
         render();
       } catch(e){ showError(e); }
     })();
