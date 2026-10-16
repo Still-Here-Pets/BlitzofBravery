@@ -458,6 +458,7 @@ let scheduleLeagueFilter = '';
 let scheduleSelected = {};
 const TOTAL_WEEKS = 15;
 let picksViewWeek = null;
+let viewingPlayerId = null; // non-null while browsing another player's picks for a locked week
 let boardViewWeek = null;
 let editingMessageId = null;
 const BOARD_MAX_LEN = 1000;
@@ -820,8 +821,8 @@ function scoreLine(g){
   const tag = g.winner ? '<span class="badge good">FINAL</span>' : '<span class="badge gold">LIVE</span>';
   return ' <span class="num" style="font-size:16px;">' + (g.awayScore??0) + '–' + (g.homeScore??0) + '</span> ' + tag;
 }
-function renderPointsSummary(wk, regularGames){
-  const pid = session.playerId;
+function renderPointsSummary(wk, regularGames, pid){
+  pid = pid || session.playerId;
   const p = STATE.picks[pickDocId(wk, pid)];
   const points = weeklyScore(wk, pid);
   let decided = 0, correct = 0;
@@ -867,6 +868,14 @@ function renderPicks(){
   let html = '<label>Viewing</label><select onchange="App.setPicksWeek(this.value)">' + weekOptions(wk) + '</select>';
   if (!w || !w.games || !w.games.length) return html + '<div class="empty" style="margin-top:14px;">No games have been posted for Week ' + esc(wk) + ' yet. Check back soon.</div>';
   const locked = isLocked(w);
+  if (locked){
+    html += '<label style="margin-top:10px;">Compare picks</label><select onchange="App.setViewingPlayer(this.value)">' + otherPlayersOptions(viewingPlayerId) + '</select>';
+  } else if (viewingPlayerId){
+    viewingPlayerId = null; // this week isn't locked — drop out of browsing someone else's picks
+  }
+  if (locked && viewingPlayerId && viewingPlayerId !== session.playerId){
+    return html + renderOtherPlayerPicks(wk, w, viewingPlayerId);
+  }
   const existing = STATE.picks[pickDocId(wk, session.playerId)];
   if (!draft || draft.week !== wk){
     draft = existing ? JSON.parse(JSON.stringify(existing)) : { week: wk, gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
@@ -944,6 +953,53 @@ function renderPicks(){
     html += '<button class="btn btn-block" style="margin-top:8px;" onclick="App.resetPicks()">Reset Picks</button>';
   }
 
+  return html;
+}
+function otherPlayersOptions(selectedId){
+  const list = Object.entries(STATE.players).filter(([pid]) => pid !== session.playerId)
+    .sort((a,b) => (a[1].displayName||'').localeCompare(b[1].displayName||''));
+  let html = '<option value="">My Picks</option>';
+  list.forEach(([pid,p]) => { html += '<option value="' + pid + '" ' + (selectedId===pid?'selected':'') + '>' + esc(p.displayName) + '</option>'; });
+  return html;
+}
+function renderOtherPlayerPicks(wk, w, pid){
+  const name = (STATE.players[pid]||{}).displayName || 'This player';
+  const regular = w.games.filter(g => !g.isTiebreaker);
+  const tb = w.games.find(g => g.isTiebreaker);
+  const p = STATE.picks[pickDocId(wk, pid)];
+  let html = '<h3 style="margin:14px 0 4px;">' + esc(name) + '’s Picks — Week ' + esc(wk) + '</h3>';
+  if (!p){
+    html += '<div class="empty">' + esc(name) + ' did not submit picks for Week ' + esc(wk) + '.</div>';
+    return html;
+  }
+  if (p.isInsurance) html += '<div class="banner">This week was auto-filled by Insurance for ' + esc(name) + '. These points still count, but the week isn\'t eligible for the weekly prize.</div>';
+  html += renderPointsSummary(wk, regular, pid);
+  if (p.isHammer){
+    const entry = Object.entries(p.gamePicks||{})[0];
+    if (entry){
+      const [gameId, pick] = entry;
+      const hg = w.games.find(g => g.id === gameId);
+      if (hg) html += renderScorecard(hg, pick.winner, false, '<span>' + ptsBadge(55, hg.winner, pick.winner) + ' (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
+    }
+  } else {
+    regular.forEach(g => {
+      const isSkipped = p.omitGameId === g.id;
+      const pick = (p.gamePicks && p.gamePicks[g.id]) || {};
+      const foot = isSkipped ? '<span>Skipped this week</span>' :
+        (pick.winner ? '<span>' + (pick.value?ptsBadge(pick.value, g.winner, pick.winner):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
+      html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
+    });
+  }
+  if (tb){
+    const tbp = p.tiebreaker || {};
+    const actualTotal = (tb.awayScore!=null && tb.homeScore!=null) ? (tb.awayScore+tb.homeScore) : null;
+    const pickedName = tbp.winner === 'away' ? tb.away : (tbp.winner === 'home' ? tb.home : null);
+    const foot = '<span>Predicted total: ' + esc(tbp.total==null?'—':tbp.total) + '</span>' +
+      (pickedName ? '<span>Picked: <strong>' + esc(pickedName) + '</strong></span>' : '<span>No winner picked</span>') +
+      (actualTotal!=null ? '<span>Actual total: <strong>' + actualTotal + '</strong></span>' : '<span>Tiebreaker pending</span>');
+    html += '<div style="margin-bottom:4px;"><span class="badge gold">MONDAY NIGHT TIEBREAKER</span></div>' +
+      renderScorecard(tb, tbp.winner, false, foot);
+  }
   return html;
 }
 function ptsBadge(value, gameWinner, pickWinner){
@@ -1398,7 +1454,9 @@ const App = {
           const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
           await loadWeekGames(wk);
           await loadScheduleCache();
+          await loadProfiles();
           if (session.playerId) await loadOwnPick(wk, session.playerId);
+          if (viewingPlayerId) await loadOwnPick(wk, viewingPlayerId);
         }
         else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); await loadHallOfFame(); }
         else if (v === 'board') { await loadBoardMessages(boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek); }
@@ -1475,11 +1533,20 @@ const App = {
   async setPicksWeek(v){
     const n = parseInt(v, 10);
     picksViewWeek = n;
+    viewingPlayerId = null;
     try {
       await loadWeekGames(n);
       if (session.playerId) await loadOwnPick(n, session.playerId);
       render();
     } catch(e){ showError(e); }
+  },
+  async setViewingPlayer(pid){
+    viewingPlayerId = pid || null;
+    if (viewingPlayerId){
+      const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
+      try { await loadOwnPick(wk, viewingPlayerId); } catch(e){ showError(e); }
+    }
+    render();
   },
 
   async offerLegacyClaim(playerId, displayName){
@@ -2036,6 +2103,7 @@ async function boot(){
     await loadConfig();
     await loadWeekGames(STATE.meta.currentWeek);
     await loadScheduleCache();
+    await loadProfiles();
     if (session.playerId) await loadOwnPick(STATE.meta.currentWeek, session.playerId);
     view = session.playerId ? 'picks' : 'login';
     render();
