@@ -10,8 +10,25 @@ const { createClient } = require('@supabase/supabase-js');
 
 const ESPN_NFL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 const ESPN_CFB = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300';
+const ESPN_CFB_RANKINGS = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings';
 
-function parseEvents(json, league) {
+// The scoreboard endpoint's own per-competitor `curatedRank.current` field is
+// unreliable (observed stuck at 99/unranked even for AP-ranked teams), so the
+// AP Top 25 is fetched separately and matched onto games by ESPN team id instead.
+async function fetchApRankById() {
+  const rankById = {};
+  try {
+    const json = await fetch(ESPN_CFB_RANKINGS).then(r => r.json());
+    const polls = json.rankings || [];
+    const ap = polls.find(p => p.type === 'ap' || p.shortName === 'AP Poll') || polls[0];
+    (ap && ap.ranks || []).forEach(r => {
+      if (r.team && r.team.id != null && r.current != null) rankById[r.team.id] = r.current;
+    });
+  } catch (e) { /* non-fatal — games just sync without rank info this run */ }
+  return rankById;
+}
+
+function parseEvents(json, league, rankById) {
   const events = json.events || [];
   return events.map(ev => {
     const comp = ev.competitions && ev.competitions[0];
@@ -22,9 +39,9 @@ function parseEvents(json, league) {
     const odds = comp.odds && comp.odds[0];
     const awayRecord = (away.records && away.records[0] && away.records[0].summary) || null;
     const homeRecord = (home.records && home.records[0] && home.records[0].summary) || null;
-    // College games carry a curated AP/CFP rank per team (1-25); ESPN uses 99 for unranked.
-    const awayRankRaw = away.curatedRank && away.curatedRank.current;
-    const homeRankRaw = home.curatedRank && home.curatedRank.current;
+    // College games: look up each team's AP Top 25 rank by ESPN team id (1-25, or null if unranked).
+    const awayRankRaw = rankById && away.team && rankById[away.team.id];
+    const homeRankRaw = rankById && home.team && rankById[home.team.id];
     const awayRank = (league === 'College' && awayRankRaw && awayRankRaw <= 25) ? awayRankRaw : null;
     const homeRank = (league === 'College' && homeRankRaw && homeRankRaw <= 25) ? homeRankRaw : null;
     return {
@@ -56,14 +73,15 @@ module.exports = async (req, res) => {
   const results = { nfl: 0, cfb: 0, graded: 0, errors: [] };
 
   try {
-    const [nflRes, cfbRes] = await Promise.all([
+    const [nflRes, cfbRes, apRankById] = await Promise.all([
       fetch(ESPN_NFL).then(r => r.json()),
-      fetch(ESPN_CFB).then(r => r.json())
+      fetch(ESPN_CFB).then(r => r.json()),
+      fetchApRankById()
     ]);
 
     const games = [
-      ...parseEvents(nflRes, 'NFL'),
-      ...parseEvents(cfbRes, 'College')
+      ...parseEvents(nflRes, 'NFL', null),
+      ...parseEvents(cfbRes, 'College', apRankById)
     ];
 
     for (const g of games) {
