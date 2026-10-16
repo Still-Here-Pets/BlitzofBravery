@@ -301,6 +301,10 @@
     opacity: 0.9;
   }
   .pts-badge { font-size: 22px; padding: 4px 12px; font-weight: 800; }
+  .badge.pts-correct { background: #4CE08A; color: #06130c; }
+  .badge.pts-missed { background: rgba(210,38,48,0.85); color: #fff; }
+  .badge-alive { background: var(--good); color: #06130c; }
+  .badge-out { background: var(--brick); color: #fff; }
   .badge.missed { background: rgba(210,38,48,0.22); color: #FF6672; font-size: 13px; }
   .team-tags { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
   .win-tag { font-size: 12px; font-weight: 800; color: #4CE08A; text-transform: uppercase; letter-spacing: 0.04em; text-shadow: 0 0 3px rgba(76,224,138,0.55); }
@@ -324,6 +328,45 @@
   .points-summary-max { font-size: 26px; color: rgba(255,255,255,0.45); margin-left: 4px; }
   .points-summary-label { color: #F4F4F2; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 13px; margin-top: 2px; }
   .points-summary-sub { color: rgba(255,255,255,0.55); font-size: 12px; margin-top: 4px; }
+
+  /* ---------- Accessibility ---------- */
+  body.text-large #app { zoom: 1.15; }
+  body.text-xlarge #app { zoom: 1.3; }
+  .a11y-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .a11y-row:last-child { border-bottom: none; }
+  .a11y-row-label { font-weight: 600; font-size: 14px; }
+  .a11y-row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .a11y-segmented { display: flex; gap: 6px; }
+  .a11y-segmented button { font-size: 12px; padding: 7px 11px; }
+  .a11y-segmented button.active { background: var(--gold); color: #201800; border-color: transparent; }
+  .a11y-switch { position: relative; flex: 0 0 auto; width: 46px; height: 26px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; padding: 0; }
+  .a11y-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: transform 0.15s ease, background 0.15s ease; }
+  .a11y-switch.on { background: color-mix(in srgb, var(--gold) 35%, var(--bg)); border-color: var(--gold); }
+  .a11y-switch.on::after { background: var(--gold); transform: translateX(20px); }
+
+  /* High contrast: stronger borders/text everywhere, independent of theme */
+  body.high-contrast { --muted: var(--ink); }
+  body.high-contrast .card, body.high-contrast .game-row, body.high-contrast .scroll-wrap,
+  body.high-contrast .modal-box, body.high-contrast input, body.high-contrast select, body.high-contrast textarea,
+  body.high-contrast .pick-btn, body.high-contrast .btn { border-width: 2px; border-color: var(--ink); }
+  body.high-contrast .tabs { border-bottom-width: 2px; border-color: var(--ink); }
+  body.high-contrast .tab.active { border-bottom-width: 5px; }
+  body.high-contrast th { color: var(--ink); }
+
+  /* Reduce motion: strip transitions/animations/smooth-scroll app-wide */
+  body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after {
+    transition: none !important; animation: none !important; scroll-behavior: auto !important;
+  }
+
+  /* Colorblind-friendly: swap green/red "correct vs missed" cues for blue/orange */
+  body.colorblind-mode .badge.good, body.colorblind-mode .badge.pts-correct,
+  body.colorblind-mode .scorecard-foot .badge.good { background: #3E8EDE; color: #06121f; }
+  body.colorblind-mode .badge.missed, body.colorblind-mode .badge.pts-missed { background: #E8871E; color: #1a0f00; }
+  body.colorblind-mode .win-tag { color: #5FAEFF; text-shadow: 0 0 3px rgba(95,174,255,0.55); }
+  body.colorblind-mode .team-box.loser .team-score { color: #E8871E; text-shadow: 0 0 3px rgba(232,135,30,0.85), 0 0 9px rgba(232,135,30,0.45); }
+  body.colorblind-mode .pick-btn.selected { box-shadow: 0 0 0 2px #3E8EDE inset; }
+  body.colorblind-mode .badge-alive { background: #3E8EDE; color: #06121f; }
+  body.colorblind-mode .badge-out { background: #E8871E; color: #1a0f00; }
 </style>
 </head>
 <body>
@@ -383,6 +426,27 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let session = {};      // { playerId, displayName, isAdmin }
 let view = 'login';
+let a11y = { textSize: 'normal', highContrast: false, reduceMotion: false, colorblind: false };
+(function loadA11ySettings(){
+  try {
+    const saved = JSON.parse(localStorage.getItem('blitzA11y') || '{}');
+    a11y = Object.assign(a11y, saved);
+  } catch(e){}
+  applyA11ySettings();
+})();
+function applyA11ySettings(){
+  const b = document.body;
+  b.classList.remove('text-large','text-xlarge');
+  if (a11y.textSize === 'large') b.classList.add('text-large');
+  else if (a11y.textSize === 'xlarge') b.classList.add('text-xlarge');
+  b.classList.toggle('high-contrast', !!a11y.highContrast);
+  b.classList.toggle('reduce-motion', !!a11y.reduceMotion);
+  b.classList.toggle('colorblind-mode', !!a11y.colorblind);
+}
+function saveA11ySettings(){
+  try { localStorage.setItem('blitzA11y', JSON.stringify(a11y)); } catch(e){}
+  applyA11ySettings();
+}
 sb.auth.onAuthStateChange((event) => { if (event === 'PASSWORD_RECOVERY'){ view = 'resetPassword'; render(); } });
 let authMode = 'login'; // 'login' | 'signup'
 let draft = null;
@@ -650,6 +714,21 @@ function renderProfile(){
     '<label>Display name</label><input id="pf-name" value="' + esc(session.displayName) + '">' +
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.saveDisplayName()">Save name</button>' +
   '</div>';
+  html += '<div class="card"><h3 style="margin-top:0;">Accessibility</h3>' +
+    '<p class="muted" style="margin-top:-6px;">These display settings are saved on this device/browser.</p>' +
+    '<div class="a11y-row"><div><div class="a11y-row-label">Text size</div></div>' +
+      '<div class="a11y-segmented">' +
+        '<button class="btn ' + (a11y.textSize==='normal'?'active':'') + '" onclick="App.setTextSize(\'normal\')">A</button>' +
+        '<button class="btn ' + (a11y.textSize==='large'?'active':'') + '" onclick="App.setTextSize(\'large\')">A+</button>' +
+        '<button class="btn ' + (a11y.textSize==='xlarge'?'active':'') + '" onclick="App.setTextSize(\'xlarge\')">A++</button>' +
+      '</div></div>' +
+    '<div class="a11y-row"><div><div class="a11y-row-label">High contrast</div><div class="a11y-row-sub">Stronger borders and brighter text</div></div>' +
+      '<button class="a11y-switch ' + (a11y.highContrast?'on':'') + '" onclick="App.toggleA11y(\'highContrast\')" aria-label="Toggle high contrast"></button></div>' +
+    '<div class="a11y-row"><div><div class="a11y-row-label">Reduce motion</div><div class="a11y-row-sub">Turns off animations and smooth scrolling</div></div>' +
+      '<button class="a11y-switch ' + (a11y.reduceMotion?'on':'') + '" onclick="App.toggleA11y(\'reduceMotion\')" aria-label="Toggle reduce motion"></button></div>' +
+    '<div class="a11y-row"><div><div class="a11y-row-label">Colorblind-friendly colors</div><div class="a11y-row-sub">Swaps green/red cues for blue/orange</div></div>' +
+      '<button class="a11y-switch ' + (a11y.colorblind?'on':'') + '" onclick="App.toggleA11y(\'colorblind\')" aria-label="Toggle colorblind-friendly colors"></button></div>' +
+  '</div>';
   if (me.championNotes){
     html += '<div class="card"><h3 style="margin-top:0;">Champion history</h3>' +
       '<div><span class="badge gold">&#127942; ' + esc(me.championNotes) + '</span></div></div>';
@@ -868,13 +947,9 @@ function renderPicks(){
   return html;
 }
 function ptsBadge(value, gameWinner, pickWinner){
-  let style = '';
-  if (gameWinner && pickWinner){
-    style = pickWinner === gameWinner
-      ? 'background:#4CE08A;color:#06130c;'
-      : 'background:rgba(210,38,48,0.85);color:#fff;';
-  }
-  return '<span class="badge gold pts-badge" style="' + style + '">' + value + ' pts</span>';
+  let cls = 'gold';
+  if (gameWinner && pickWinner) cls = pickWinner === gameWinner ? 'pts-correct' : 'pts-missed';
+  return '<span class="badge ' + cls + ' pts-badge">' + value + ' pts</span>';
 }
 function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge missed">Missed</span>'; }
 function scheduleInfo(g){
@@ -1050,6 +1125,27 @@ function renderSurvivorBoard(pointValue, title, playerIds){
   } else {
     html += '<div class="my-status out"><div class="status-icon">&#10005;</div><div><div class="status-label">Eliminated — Week ' + me.eliminatedWeek + '</div><div class="status-sub">' + esc(me.reason) + ' · ' + aliveCount + ' of ' + results.length + ' players remaining</div></div></div>';
   }
+  const expanded = !!survivorExpanded[pointValue];
+  html += '<div class="section-head" style="margin-top:10px;">' +
+    '<span class="muted" style="font-size:13px;">' + aliveCount + ' of ' + results.length + ' still alive</span>' +
+    '<button class="find-me-btn" onclick="App.toggleSurvivorDetail(' + pointValue + ')">' + (expanded ? 'Hide list' : "See who's in") + '</button></div>';
+  if (expanded){
+    const sorted = results.slice().sort((a,b) => {
+      if (a.status.alive !== b.status.alive) return a.status.alive ? -1 : 1;
+      if (!a.status.alive && !b.status.alive) return (b.status.eliminatedWeek||0) - (a.status.eliminatedWeek||0);
+      const an = (STATE.players[a.pid]||{}).displayName||'', bn = (STATE.players[b.pid]||{}).displayName||'';
+      return an.localeCompare(bn);
+    });
+    html += '<div class="scroll-wrap expanded" style="margin-top:6px;"><table><tbody>';
+    sorted.forEach(r => {
+      const name = (STATE.players[r.pid]||{}).displayName || 'Unknown';
+      const isMe = r.pid === session.playerId;
+      html += '<tr' + (isMe?' class="me-row"':'') + '><td>' + esc(name) + champBadge(r.pid) + '</td><td class="num" style="text-align:right;">' +
+        (r.status.alive ? '<span class="badge badge-alive">Alive</span>' : '<span class="badge badge-out">Out · Wk ' + r.status.eliminatedWeek + '</span>') +
+      '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
   return html;
 }
 
@@ -1187,7 +1283,38 @@ function renderAdmin(){
       '<button class="btn" style="flex:0 0 auto;" onclick="App.toggleAdmin(\'' + pid + '\')">' + (p.isAdmin ? 'Remove Admin' : 'Make Admin') + '</button></div>';
   });
   html += '</div>';
+  html += renderAdminHallOfFame();
   html += renderAdminEditPicks(players);
+  return html;
+}
+
+function renderAdminHallOfFame(){
+  const entries = STATE.hallOfFame || [];
+  let html = '<div class="card"><h3 style="margin-top:0;">Hall of Fame</h3>' +
+    '<p class="muted" style="margin-top:-6px;">Add a past year\'s champion profile and write-up. These show on the Hall of Fame tab for everyone.</p>';
+  if (hofEditingId !== null){
+    const editing = hofEditingId !== 'new' ? entries.find(e => e.id === hofEditingId) : null;
+    html += '<div class="card" style="background:var(--bg);">' +
+      '<label>Year</label><input id="hof-year" type="number" value="' + esc(editing ? editing.year : (new Date()).getFullYear()) + '">' +
+      '<label>Player name</label><input id="hof-player" placeholder="e.g. Tim Flanigan" value="' + esc(editing ? editing.player_name : '') + '">' +
+      '<label>Title / badge (optional)</label><input id="hof-title" placeholder="e.g. Season Champion" value="' + esc(editing ? (editing.title||'') : '') + '">' +
+      '<label>Write-up (optional)</label><textarea id="hof-writeup" rows="4" style="width:100%;resize:vertical;">' + esc(editing ? (editing.write_up||'') : '') + '</textarea>' +
+      '<div class="row" style="margin-top:10px;">' +
+        '<button class="btn btn-primary" onclick="App.hofSave()">Save</button>' +
+        '<button class="btn" onclick="App.hofCancelEdit()">Cancel</button>' +
+      '</div></div>';
+  } else {
+    html += '<button class="btn btn-primary btn-block" onclick="App.hofNewEntry()">+ Add Hall of Fame Entry</button>';
+  }
+  if (entries.length){
+    html += '<div style="margin-top:12px;">';
+    entries.forEach(e => {
+      html += '<div class="row" style="align-items:center;margin-bottom:8px;"><div><strong>' + esc(e.year) + ' — ' + esc(e.player_name) + '</strong>' + (e.title?' <span class="badge gold">' + esc(e.title) + '</span>':'') + '</div>' +
+        '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.hofEditEntry(\'' + e.id + '\')">Edit</button><button class="btn btn-danger" onclick="App.hofDeleteEntry(\'' + e.id + '\')">Delete</button></div></div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
   return html;
 }
 
@@ -1291,11 +1418,15 @@ const App = {
     const row = document.getElementById(sectionId + '-body-me');
     if (!row){ showToast('You\'re not on this list yet.'); return; }
     if (wrap) wrap.classList.add('expanded');
+    const reduceMotion = !!a11y.reduceMotion;
     setTimeout(() => {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
       row.style.transition = 'none';
       row.style.boxShadow = '0 0 0 2px #FFD60A';
-      setTimeout(() => { row.style.transition = 'box-shadow 0.6s'; row.style.boxShadow = 'none'; }, 700);
+      setTimeout(() => {
+        if (!reduceMotion) row.style.transition = 'box-shadow 0.6s';
+        row.style.boxShadow = 'none';
+      }, 700);
     }, 50);
   },
   async setBoardWeek(v){
@@ -1702,6 +1833,37 @@ const App = {
   async toggleAdmin(pid){
     const p = STATE.players[pid];
     try { await sb.from('profiles').update({ is_admin: !p.isAdmin }).eq('id', pid); await loadProfiles(); render(); }
+    catch(e){ showError(e); }
+  },
+  toggleSurvivorDetail(pointValue){ survivorExpanded[pointValue] = !survivorExpanded[pointValue]; render(); },
+  setTextSize(size){ a11y.textSize = size; saveA11ySettings(); render(); },
+  toggleA11y(key){ a11y[key] = !a11y[key]; saveA11ySettings(); render(); },
+  hofNewEntry(){ hofEditingId = 'new'; render(); },
+  hofEditEntry(id){ hofEditingId = id; render(); },
+  hofCancelEdit(){ hofEditingId = null; render(); },
+  async hofSave(){
+    const year = parseInt(document.getElementById('hof-year').value, 10);
+    const playerName = (document.getElementById('hof-player').value||'').trim();
+    const title = (document.getElementById('hof-title').value||'').trim();
+    const writeUp = document.getElementById('hof-writeup').value;
+    if (!year){ alert('Enter a year.'); return; }
+    if (!playerName){ alert('Enter a player name.'); return; }
+    try {
+      if (hofEditingId === 'new'){
+        const { error } = await sb.from('hall_of_fame').insert({ year, player_name: playerName, title: title || null, write_up: writeUp || null });
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('hall_of_fame').update({ year, player_name: playerName, title: title || null, write_up: writeUp || null }).eq('id', hofEditingId);
+        if (error) throw error;
+      }
+      hofEditingId = null;
+      await loadHallOfFame();
+      render();
+    } catch(e){ showError(e); }
+  },
+  async hofDeleteEntry(id){
+    if (!confirm('Delete this Hall of Fame entry?')) return;
+    try { await sb.from('hall_of_fame').delete().eq('id', id); await loadHallOfFame(); render(); }
     catch(e){ showError(e); }
   },
   async adminCreatePlayer(){
