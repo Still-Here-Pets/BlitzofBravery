@@ -199,6 +199,8 @@
   .pick-buttons { display: flex; gap: 8px; margin-bottom: 10px; }
   .pick-btn { flex: 1; padding: 12px 8px; border-radius: 10px; border: 2px solid var(--border); background: var(--bg); color: var(--ink); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; }
   .pick-btn.selected { border-color: var(--gold); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 28%, var(--bg)), color-mix(in srgb, var(--gold) 16%, var(--bg))); color: var(--ink); }
+  .pick-team-name { display: block; }
+  .pick-team-record { display: block; font-size: 11px; font-weight: 500; opacity: 0.65; margin-top: 2px; }
   .game-controls { display: flex; gap: 8px; align-items: center; } .game-controls select { flex: 1; }
   .skip-btn { font-size: 12px; padding: 8px 10px; white-space: nowrap; }
   .skip-btn.active { background: var(--brick); color: #fff; border-color: var(--brick); }
@@ -777,7 +779,7 @@ function renderPicks(){
 
   if (hammerMode && hammerGame && !locked){
     const pick = draft.gamePicks[hammerGame.id] || {};
-    html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffLabel(hammerGame.kickoff) + '</span></div>' +
+    html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffSpread(hammerGame) + '</span></div>' +
       '<div class="perf"></div><div class="game-body">' +
       '<div class="pick-buttons">' + teamBtn(hammerGame,'away', pick.winner==='away', false, false, true) + teamBtn(hammerGame,'home', pick.winner==='home', false, false, true) + '</div>' +
       '<div class="muted" style="margin-bottom:8px;">All 55 points go on this pick.</div>' +
@@ -794,7 +796,7 @@ function renderPicks(){
     const isHammerGame = w.hammerGameId === g.id;
     if (!locked){
       html += '<div class="game-row ' + (isSkipped?'skipped':'') + (isHammerGame&&!isSkipped?' hammer-eligible':'') + '">' +
-        '<div class="game-meta">' + (isHammerGame ? '<span class="hammer-flag">⚡ HAMMER AVAILABLE</span>' : '<span>' + esc(g.league||'') + '</span>') + '<span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+        '<div class="game-meta">' + (isHammerGame ? '<span class="hammer-flag">⚡ HAMMER AVAILABLE</span>' : '<span>' + esc(g.league||'') + '</span>') + '<span>' + kickoffSpread(g) + '</span></div>' +
         '<div class="perf"></div><div class="game-body">' +
         (isHammerGame && hammerAvailable ? '<button class="hammer-cta" onclick="App.toggleHammerMode()">⚡ Use Seau\'s Hammer on this game</button>' : '') +
         (isHammerGame && !hammerAvailable && session.hammerUsed ? '<p class="muted" style="margin:0 0 10px;">⚡ You\'ve already used Seau\'s Hammer this season.</p>' : '') +
@@ -816,7 +818,7 @@ function renderPicks(){
   if (tb){
     const tbp = draft.tiebreaker || {};
     if (!locked){
-      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + '</span></div>' +
+      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffSpread(tb) + '</span></div>' +
         '<div class="perf"></div><div class="game-body">' +
         '<div class="pick-buttons">' + teamBtn(tb,'away', tbp.winner==='away', false, true) + teamBtn(tb,'home', tbp.winner==='home', false, true) + '</div>' +
         '<label style="margin-top:0;">Predicted combined final score (both teams)</label>' +
@@ -849,12 +851,38 @@ function ptsBadge(value, gameWinner, pickWinner){
   return '<span class="badge gold pts-badge" style="' + style + '">' + value + ' pts</span>';
 }
 function gradeBadge(gameWinner, pickWinner){ if (!pickWinner) return ''; return pickWinner === gameWinner ? ' <span class="badge good">Correct</span>' : ' <span class="badge missed">Missed</span>'; }
+function scheduleInfo(g){
+  if (!g) return null;
+  const cache = STATE.scheduleCache || [];
+  const norm = s => (s||'').trim().toLowerCase();
+  const row = cache.find(r => norm(r.away)===norm(g.away) && norm(r.home)===norm(g.home));
+  if (!row) return null;
+  let awayRecord = '', homeRecord = '';
+  if (row.records){
+    row.records.split(',').forEach(part => {
+      const m = part.trim().match(/^(.*)\s(\d+-\d+(?:-\d+)?)$/);
+      if (!m) return;
+      const team = norm(m[1]);
+      if (team === norm(g.away)) awayRecord = m[2];
+      else if (team === norm(g.home)) homeRecord = m[2];
+    });
+  }
+  return { awayRecord, homeRecord, spread: row.spread || '' };
+}
+function kickoffSpread(g){
+  const info = scheduleInfo(g);
+  return kickoffLabel(g.kickoff) + (info && info.spread ? ' · ' + info.spread : '');
+}
 function teamBtn(g, side, selected, disabled, isTb, isHammer, adminMode){
   const name = side === 'away' ? g.away : g.home;
+  const info = scheduleInfo(g);
+  const record = info ? (side === 'away' ? info.awayRecord : info.homeRecord) : '';
   const fn = adminMode
     ? (isTb ? "App.adminSetTbWinner('" + side + "')" : (isHammer ? "App.adminSetHammerWinner('" + g.id + "','" + side + "')" : "App.adminSetWinner('" + g.id + "','" + side + "')"))
     : (isTb ? "App.setTbWinner('" + side + "')" : (isHammer ? "App.setHammerWinner('" + g.id + "','" + side + "')" : "App.setWinner('" + g.id + "','" + side + "')"));
-  return '<button class="pick-btn ' + (selected?'selected':'') + '" ' + (disabled?'disabled':'') + ' onclick="' + (disabled?'':fn) + '">' + esc(name) + '</button>';
+  return '<button class="pick-btn ' + (selected?'selected':'') + '" ' + (disabled?'disabled':'') + ' onclick="' + (disabled?'':fn) + '">' +
+    '<span class="pick-team-name">' + esc(name) + '</span>' + (record ? '<span class="pick-team-record">' + esc(record) + '</span>' : '') +
+  '</button>';
 }
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
 function toLocalInputValue(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; const pad = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }
@@ -1165,7 +1193,7 @@ function renderAdminEditPicks(players){
 
     if (adminEditHammerMode && hammerGame){
       const pick = adminEditDraft.gamePicks[hammerGame.id] || {};
-      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffLabel(hammerGame.kickoff) + '</span></div>' +
+      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffSpread(hammerGame) + '</span></div>' +
         '<div class="perf"></div><div class="game-body">' +
         '<div class="pick-buttons">' + teamBtn(hammerGame,'away', pick.winner==='away', false, false, true, true) + teamBtn(hammerGame,'home', pick.winner==='home', false, false, true, true) + '</div>' +
         '<div class="muted">All 55 points go on this pick.</div></div></div>';
@@ -1177,7 +1205,7 @@ function renderAdminEditPicks(players){
         const isSkipped = adminEditDraft.omitGameId === g.id;
         const pick = adminEditDraft.gamePicks[g.id] || {};
         html += '<div class="game-row ' + (isSkipped?'skipped':'') + '">' +
-          '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffLabel(g.kickoff) + '</span></div>' +
+          '<div class="game-meta"><span>' + esc(g.league||'') + '</span><span>' + kickoffSpread(g) + '</span></div>' +
           '<div class="perf"></div><div class="game-body">' +
           '<div class="pick-buttons">' + teamBtn(g,'away', pick.winner==='away', isSkipped, false, false, true) + teamBtn(g,'home', pick.winner==='home', isSkipped, false, false, true) + '</div>' +
           '<div class="game-controls">' +
@@ -1191,7 +1219,7 @@ function renderAdminEditPicks(players){
     }
     if (tb){
       const tbp = adminEditDraft.tiebreaker || {};
-      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffLabel(tb.kickoff) + '</span></div>' +
+      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>MONDAY NIGHT TIEBREAKER</span><span>' + kickoffSpread(tb) + '</span></div>' +
         '<div class="perf"></div><div class="game-body">' +
         '<div class="pick-buttons">' + teamBtn(tb,'away', tbp.winner==='away', false, true, false, true) + teamBtn(tb,'home', tbp.winner==='home', false, true, false, true) + '</div>' +
         '<label style="margin-top:0;">Predicted combined final score (both teams)</label>' +
@@ -1216,6 +1244,7 @@ const App = {
         else if (v === 'picks') {
           const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
           await loadWeekGames(wk);
+          await loadScheduleCache();
           if (session.playerId) await loadOwnPick(wk, session.playerId);
         }
         else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); }
@@ -1817,6 +1846,7 @@ async function boot(){
     try { await fetch('/api/refresh-scores'); } catch(e) { showToast('Couldn\'t reach live scores — showing the last saved results.'); }
     await loadConfig();
     await loadWeekGames(STATE.meta.currentWeek);
+    await loadScheduleCache();
     if (session.playerId) await loadOwnPick(STATE.meta.currentWeek, session.playerId);
     view = session.playerId ? 'picks' : 'login';
     render();
