@@ -367,6 +367,19 @@
   body.colorblind-mode .pick-btn.selected { box-shadow: 0 0 0 2px #3E8EDE inset; }
   body.colorblind-mode .badge-alive { background: #3E8EDE; color: #06121f; }
   body.colorblind-mode .badge-out { background: #E8871E; color: #1a0f00; }
+
+  /* ---------- Board: reactions, replies, media ---------- */
+  .media-file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; margin-top: 6px; }
+  .media-file-chip button { background: none; border: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; padding: 0; }
+  .board-media { display: block; max-width: 100%; border-radius: 10px; margin-top: 10px; max-height: 420px; }
+  .reaction-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .reaction-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; padding: 5px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; line-height: 1; }
+  .reaction-chip.mine { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 22%, var(--bg)); }
+  .reaction-count { font-size: 11px; font-weight: 700; color: var(--muted); }
+  .reaction-chip.mine .reaction-count { color: var(--ink); }
+  .reply-box { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .board-msg { position: relative; }
+  .thread-toggle { background: none; border: none; color: var(--gold); font-weight: 700; font-size: 12px; cursor: pointer; padding: 2px 0 10px; }
 </style>
 </head>
 <body>
@@ -462,6 +475,11 @@ let viewingPlayerId = null; // non-null while browsing another player's picks fo
 let boardViewWeek = null;
 let editingMessageId = null;
 const BOARD_MAX_LEN = 1000;
+const REACTION_EMOJIS = ['👍','❤️','😂','🔥','💯']; // 👍 ❤️ 😂 🔥 💯
+let boardComposeFile = null;
+let boardReplyTo = null;
+let boardReplyFile = null;
+let boardCollapsed = {}; // { [messageId]: true } when that message's replies are hidden
 let standingsViewWeek = null;
 let standingsSearch = '';
 let scheduleTiebreakerId = null;
@@ -479,7 +497,7 @@ const sbSignupClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 const NFL_TEAMS = ["Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers","Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins","Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants","New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"];
 
 const FBS_TEAMS = ["Boston College","California","Clemson","Duke","Florida State","Georgia Tech","Louisville","Miami (FL)","NC State","North Carolina","Pittsburgh","SMU","Stanford","Syracuse","Virginia","Virginia Tech","Wake Forest","Army","Charlotte","East Carolina","Florida Atlantic","Memphis","Navy","North Texas","Rice","Temple","Tulane","Tulsa","UAB","USF","UTSA","Illinois","Indiana","Iowa","Maryland","Michigan","Michigan State","Minnesota","Nebraska","Northwestern","Ohio State","Oregon","Penn State","Purdue","Rutgers","UCLA","USC","Washington","Wisconsin","Delaware","FIU","Jacksonville State","Kennesaw State","Liberty","Middle Tennessee","Missouri State","New Mexico State","Sam Houston","Western Kentucky","Notre Dame","UConn","Akron","Ball State","Bowling Green","Buffalo","Central Michigan","Eastern Michigan","Kent State","Miami (OH)","Ohio","Sacramento State","Toledo","UMass","Western Michigan","Air Force","Hawai'i","Nevada","New Mexico","North Dakota State","Northern Illinois","San José State","UNLV","UTEP","Wyoming","Boise State","Colorado State","Fresno State","Oregon State","San Diego State","Texas State","Utah State","Washington State","Alabama","Arkansas","Auburn","Florida","Georgia","Kentucky","LSU","Mississippi State","Missouri","Oklahoma","Ole Miss","South Carolina","Tennessee","Texas","Texas A&M","Vanderbilt","Arizona","Arizona State","Baylor","BYU","Cincinnati","Colorado","Houston","Iowa State","Kansas","Kansas State","Oklahoma State","TCU","Texas Tech","UCF","Utah","West Virginia","Appalachian State","Coastal Carolina","Georgia Southern","Georgia State","James Madison","Marshall","Old Dominion","Arkansas State","Louisiana","Louisiana Tech","South Alabama","Southern Miss","Troy","ULM"];
-let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [], messages: {}, hallOfFame: [] };
+let STATE = { meta: { seasonName: 'The Blitz of Bravery', currentWeek: 1 }, weeks: {}, players: {}, picks: {}, scheduleCache: [], messages: {}, hallOfFame: [], reactions: {} };
 
 function pwField(id, placeholder){
   return '<div class="pw-wrap"><input id="' + id + '" type="password" placeholder="' + esc(placeholder||'') + '">' +
@@ -557,9 +575,40 @@ async function loadAllWeeksAndPicks(){
   (pickRows||[]).forEach(p => { STATE.picks[pickDocId(p.week_number, p.player_id)] = rowToPick(p); });
 }
 async function loadBoardMessages(wk){
-  const { data, error } = await sb.from('messages').select('*').eq('week_number', wk).order('created_at', { ascending: false });
+  const { data, error } = await sb.from('messages').select('*').eq('week_number', wk).order('created_at', { ascending: true });
   if (error) throw error;
-  STATE.messages[wk] = (data||[]).map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at, editedAt: m.edited_at }));
+  const rows = data || [];
+  STATE.messages[wk] = rows.map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at, editedAt: m.edited_at, parentId: m.parent_id, mediaUrl: m.media_url, mediaType: m.media_type }));
+  STATE.reactions = STATE.reactions || {};
+  const ids = rows.map(m => m.id);
+  ids.forEach(id => { STATE.reactions[id] = []; });
+  if (ids.length){
+    const { data: reacts } = await sb.from('message_reactions').select('*').in('message_id', ids);
+    (reacts||[]).forEach(r => { (STATE.reactions[r.message_id] = STATE.reactions[r.message_id] || []).push({ playerId: r.player_id, emoji: r.emoji }); });
+  }
+}
+function buildMessageTree(wk){
+  const msgs = STATE.messages[wk] || [];
+  const byId = {};
+  msgs.forEach(m => { byId[m.id] = Object.assign({}, m, { replies: [] }); });
+  const roots = [];
+  msgs.forEach(m => {
+    const node = byId[m.id];
+    if (m.parentId && byId[m.parentId]) byId[m.parentId].replies.push(node);
+    else roots.push(node);
+  });
+  roots.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return roots;
+}
+async function uploadBoardMedia(file){
+  const extMatch = /\.([a-zA-Z0-9]+)$/.exec(file.name || '');
+  const ext = (extMatch ? extMatch[1] : (file.type.split('/')[1] || 'bin')).toLowerCase();
+  const path = session.playerId + '/' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.' + ext;
+  const { error } = await sb.storage.from('board-media').upload(path, file, { contentType: file.type });
+  if (error) throw error;
+  const { data } = sb.storage.from('board-media').getPublicUrl(path);
+  const mediaType = file.type.startsWith('video/') ? 'video' : (file.type === 'image/gif' ? 'gif' : 'image');
+  return { mediaUrl: data.publicUrl, mediaType };
 }
 async function loadOwnPick(wk, playerId){
   const { data } = await sb.from('picks').select('*').eq('week_number', wk).eq('player_id', playerId).maybeSingle();
@@ -763,33 +812,80 @@ function timeAgo(iso){
   if (days < 7) return days + 'd ago';
   return new Date(iso).toLocaleDateString();
 }
+function renderComposeBox(parentId){
+  const isReply = !!parentId;
+  const taId = isReply ? 'board-reply-ta-' + parentId : 'board-compose';
+  const fileInputId = isReply ? 'board-reply-file-' + parentId : 'board-compose-file';
+  const file = isReply ? boardReplyFile : boardComposeFile;
+  const counterId = isReply ? 'board-reply-counter-' + parentId : 'board-counter';
+  let html = '<textarea id="' + taId + '" rows="' + (isReply?2:3) + '" maxlength="' + BOARD_MAX_LEN + '" placeholder="' + (isReply ? 'Write a reply…' : 'Say something about this week…') + '" style="width:100%;resize:vertical;" oninput="document.getElementById(\'' + counterId + '\').textContent = this.value.length + \'/' + BOARD_MAX_LEN + '\'"></textarea>' +
+    '<div class="muted" id="' + counterId + '" style="text-align:right;font-size:12px;">0/' + BOARD_MAX_LEN + '</div>';
+  if (file){
+    html += '<div class="media-file-chip">📎 ' + esc(file.name) + ' <button type="button" onclick="App.' + (isReply?'clearReplyFile()':'clearComposeFile()') + '">&times;</button></div>';
+  }
+  html += '<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">' +
+    '<label class="btn" style="flex:0 0 auto;cursor:pointer;margin:0;">📷 Photo/Video' +
+      '<input type="file" accept="image/*,video/*" id="' + fileInputId + '" style="display:none;" onchange="App.' + (isReply ? "setReplyFile(this.files[0])" : 'setComposeFile(this.files[0])') + '"></label>' +
+    '<button class="btn btn-primary" style="flex:0 0 auto;" onclick="App.' + (isReply ? "postReply('"+parentId+"')" : 'postMessage()') + '">Post</button>' +
+    (isReply ? '<button class="btn" style="flex:0 0 auto;" onclick="App.cancelReply()">Cancel</button>' : '') +
+  '</div>';
+  return html;
+}
+function renderMessageMedia(m){
+  if (!m.mediaUrl) return '';
+  if (m.mediaType === 'video') return '<video class="board-media" src="' + esc(m.mediaUrl) + '" controls playsinline></video>';
+  return '<img class="board-media" src="' + esc(m.mediaUrl) + '" alt="" loading="lazy">';
+}
+function reactionBar(messageId){
+  const reacts = STATE.reactions[messageId] || [];
+  let html = '<div class="reaction-bar">';
+  REACTION_EMOJIS.forEach(emoji => {
+    const users = reacts.filter(r => r.emoji === emoji);
+    const mine = users.some(r => r.playerId === session.playerId);
+    html += '<button type="button" class="reaction-chip ' + (mine?'mine':'') + '" onclick="App.toggleReaction(\'' + messageId + '\',\'' + emoji + '\')">' + emoji + (users.length ? '<span class="reaction-count">' + users.length + '</span>' : '') + '</button>';
+  });
+  html += '</div>';
+  return html;
+}
+function renderMessageCard(m, depth){
+  const mine = m.playerId === session.playerId;
+  let html = '<div class="board-msg" style="' + (depth ? 'margin-left:' + Math.min(depth,4)*18 + 'px;' : '') + '">';
+  if (editingMessageId === m.id){
+    html += '<div class="card" style="margin-bottom:8px;">' +
+      '<div><strong>' + esc(m.displayName) + '</strong></div>' +
+      '<textarea id="board-edit-' + m.id + '" rows="3" maxlength="' + BOARD_MAX_LEN + '" style="width:100%;resize:vertical;margin-top:6px;">' + esc(m.body) + '</textarea>' +
+      '<div class="row" style="margin-top:8px;">' +
+        '<button class="btn btn-primary" onclick="App.saveEdit(\'' + m.id + '\')">Save</button>' +
+        '<button class="btn" onclick="App.cancelEdit()">Cancel</button>' +
+      '</div></div>';
+  } else {
+    html += '<div class="card" style="margin-bottom:8px;">' +
+      '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong>' + champBadge(m.playerId) + ' <span class="muted">' + timeAgo(m.createdAt) + (m.editedAt ? ' (edited)' : '') + '</span></div>' +
+      (mine ? '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.startEdit(\'' + m.id + '\')">Edit</button><button class="btn" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button></div>' : '') +
+      '</div>' +
+      (m.body ? '<div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div>' : '') +
+      renderMessageMedia(m) +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;">' + reactionBar(m.id) +
+        '<button class="btn" style="flex:0 0 auto;" onclick="App.startReply(\'' + m.id + '\')">💬 Reply</button>' +
+      '</div>';
+    if (boardReplyTo === m.id) html += '<div class="reply-box">' + renderComposeBox(m.id) + '</div>';
+    html += '</div>';
+  }
+  if ((m.replies||[]).length){
+    const collapsed = !!boardCollapsed[m.id];
+    html += '<button type="button" class="thread-toggle" onclick="App.toggleThread(\'' + m.id + '\')">' + (collapsed ? '▸ Show ' : '▾ Hide ') + m.replies.length + (m.replies.length===1?' reply':' replies') + '</button>';
+    if (!collapsed) m.replies.forEach(child => { html += renderMessageCard(child, (depth||0)+1); });
+  }
+  html += '</div>';
+  return html;
+}
 function renderBoard(){
   const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
   let html = '<label>Viewing</label><select onchange="App.setBoardWeek(this.value)">' + weekOptions(wk) + '</select>';
-  html += '<div class="card" style="margin-top:14px;">' +
-    '<textarea id="board-compose" rows="3" maxlength="' + BOARD_MAX_LEN + '" placeholder="Say something about Week ' + esc(wk) + '…" style="width:100%;resize:vertical;" oninput="document.getElementById(\'board-counter\').textContent = this.value.length + \'/' + BOARD_MAX_LEN + '\'"></textarea>' +
-    '<div class="muted" id="board-counter" style="text-align:right;font-size:12px;">0/' + BOARD_MAX_LEN + '</div>' +
-    '<button class="btn btn-primary" style="margin-top:4px;" onclick="App.postMessage()">Post</button>' +
-  '</div>';
-  const msgs = STATE.messages[wk] || [];
-  if (!msgs.length) html += '<div class="empty">No messages yet for Week ' + esc(wk) + '. Be the first to say something.</div>';
-  else msgs.forEach(m => {
-    const mine = m.playerId === session.playerId;
-    if (editingMessageId === m.id){
-      html += '<div class="card" style="margin-bottom:10px;">' +
-        '<div><strong>' + esc(m.displayName) + '</strong></div>' +
-        '<textarea id="board-edit-' + m.id + '" rows="3" maxlength="' + BOARD_MAX_LEN + '" style="width:100%;resize:vertical;margin-top:6px;">' + esc(m.body) + '</textarea>' +
-        '<div class="row" style="margin-top:8px;">' +
-          '<button class="btn btn-primary" onclick="App.saveEdit(\'' + m.id + '\')">Save</button>' +
-          '<button class="btn" onclick="App.cancelEdit()">Cancel</button>' +
-        '</div></div>';
-    } else {
-      html += '<div class="card" style="margin-bottom:10px;">' +
-        '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong>' + champBadge(m.playerId) + ' <span class="muted">' + timeAgo(m.createdAt) + (m.editedAt ? ' (edited)' : '') + '</span></div>' +
-        (mine ? '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.startEdit(\'' + m.id + '\')">Edit</button><button class="btn" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button></div>' : '') +
-        '</div><div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div></div>';
-    }
-  });
+  html += '<div class="card" style="margin-top:14px;">' + renderComposeBox(null) + '</div>';
+  const roots = buildMessageTree(wk);
+  if (!roots.length) html += '<div class="empty">No messages yet for Week ' + esc(wk) + '. Be the first to say something.</div>';
+  else roots.forEach(m => { html += renderMessageCard(m, 0); });
   return html;
 }
 function renderHallOfFame(){
@@ -1492,25 +1588,72 @@ const App = {
     boardViewWeek = n;
     try { await loadBoardMessages(n); render(); } catch(e){ showError(e); }
   },
+  setComposeFile(file){ boardComposeFile = file || null; render(); },
+  clearComposeFile(){ boardComposeFile = null; render(); },
+  setReplyFile(file){ boardReplyFile = file || null; render(); },
+  clearReplyFile(){ boardReplyFile = null; render(); },
+  startReply(id){ boardReplyTo = id; boardReplyFile = null; render(); },
+  cancelReply(){ boardReplyTo = null; boardReplyFile = null; render(); },
+  toggleThread(id){ boardCollapsed[id] = !boardCollapsed[id]; render(); },
   async postMessage(){
     const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
     const el = document.getElementById('board-compose');
     const body = (el.value || '').trim().slice(0, BOARD_MAX_LEN);
-    if (!body) return;
+    const file = boardComposeFile;
+    if (!body && !file){ alert('Write something or attach a photo/video first.'); return; }
     try {
-      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body });
+      setLoading(true);
+      let media = {};
+      if (file) media = await uploadBoardMedia(file);
+      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body, media_url: media.mediaUrl || null, media_type: media.mediaType || null });
       if (error) throw error;
       el.value = '';
+      boardComposeFile = null;
       await loadBoardMessages(wk);
+      render();
+    } catch(e){ showError(e); } finally { setLoading(false); }
+  },
+  async postReply(parentId){
+    const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
+    const el = document.getElementById('board-reply-ta-' + parentId);
+    const body = (el.value || '').trim().slice(0, BOARD_MAX_LEN);
+    const file = boardReplyFile;
+    if (!body && !file){ alert('Write something or attach a photo/video first.'); return; }
+    try {
+      setLoading(true);
+      let media = {};
+      if (file) media = await uploadBoardMedia(file);
+      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body, parent_id: parentId, media_url: media.mediaUrl || null, media_type: media.mediaType || null });
+      if (error) throw error;
+      boardReplyTo = null;
+      boardReplyFile = null;
+      await loadBoardMessages(wk);
+      render();
+    } catch(e){ showError(e); } finally { setLoading(false); }
+  },
+  async toggleReaction(messageId, emoji){
+    const reacts = STATE.reactions[messageId] || [];
+    const mine = reacts.find(r => r.playerId === session.playerId && r.emoji === emoji);
+    try {
+      if (mine){
+        const { error } = await sb.from('message_reactions').delete().eq('message_id', messageId).eq('player_id', session.playerId).eq('emoji', emoji);
+        if (error) throw error;
+        STATE.reactions[messageId] = reacts.filter(r => !(r.playerId === session.playerId && r.emoji === emoji));
+      } else {
+        const { error } = await sb.from('message_reactions').insert({ message_id: messageId, player_id: session.playerId, emoji });
+        if (error) throw error;
+        STATE.reactions[messageId] = reacts.concat([{ playerId: session.playerId, emoji }]);
+      }
       render();
     } catch(e){ showError(e); }
   },
   async deleteMessage(id){
-    if (!confirm('Delete this message?')) return;
+    if (!confirm('Delete this message? Any replies to it will be deleted too.')) return;
     const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
     try {
       const { error } = await sb.from('messages').delete().eq('id', id);
       if (error) throw error;
+      if (boardReplyTo === id) boardReplyTo = null;
       await loadBoardMessages(wk);
       render();
     } catch(e){ showError(e); }
