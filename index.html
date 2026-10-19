@@ -288,6 +288,10 @@
   .team-box.mine { box-shadow: inset 0 0 0 2px var(--info), inset 0 0 14px rgba(95,174,255,0.25); border-radius: 8px; }
   .team-box.picked.mine { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 5px var(--info), inset 0 0 14px rgba(255,214,10,0.25); border-radius: 8px; }
   .your-pick-tag { font-size: 12px; font-weight: 800; color: var(--info); text-transform: uppercase; letter-spacing: 0.04em; text-shadow: 0 0 3px rgba(95,174,255,0.45); }
+  .scenario-row { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+  .scenario-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 14px; }
+  .scenario-card ul { margin: 6px 0 0 18px; padding: 0; font-size: 13.5px; }
+  .scenario-card li { margin-bottom: 2px; }
   .team-name {
     color: #FAFAF8; font-weight: 800; font-size: 14px; letter-spacing: 0.02em; text-transform: uppercase;
     margin-bottom: 10px; min-height: 2.2em; display: flex; align-items: center; justify-content: center;
@@ -489,6 +493,7 @@ let boardReplyFile = null;
 let boardCollapsed = {}; // { [messageId]: true } when that message's replies are hidden
 let standingsViewWeek = null;
 let standingsSearch = '';
+let scenariosViewWeek = null;
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
 let adminEditPlayerId = null;
@@ -675,6 +680,7 @@ function render(){
   let body = '';
   if (view === 'picks') body = renderPicks();
   else if (view === 'standings') body = renderStandings();
+  else if (view === 'scenarios') body = renderScenarios();
   else if (view === 'admin') body = renderAdmin();
   else if (view === 'profile') body = renderProfile();
   else if (view === 'board') body = renderBoard();
@@ -716,7 +722,7 @@ function renderTopbar(){
   '</div>';
 }
 function renderTabs(){
-  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('board','Board') + tabBtn('hof','Hall of Fame') +
+  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('scenarios','Scenarios') + tabBtn('board','Board') + tabBtn('hof','Hall of Fame') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
     tabBtn('profile','Profile') + '</div>';
 }
@@ -1125,6 +1131,169 @@ function renderOtherPlayerPicks(wk, w, pid){
     html += '<div style="margin-bottom:4px;"><span class="badge gold">MONDAY NIGHT TIEBREAKER</span></div>' +
       renderScorecard(tb, tbp.winner, false, foot, myTbp.winner, 'Their Pick');
   }
+  return html;
+}
+// ---------- Scenarios: "what do I need for Top 3 / the win" ----------
+function ordinal(n){
+  const s = ['th','st','nd','rd']; const v = n % 100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+function weeklyScoreScenario(w, pick, overrides){
+  if (!pick) return 0;
+  let score = 0;
+  for (const g of w.games){
+    if (g.isTiebreaker) continue;
+    const p = pick.gamePicks && pick.gamePicks[g.id];
+    if (!p || !p.winner) continue;
+    const winner = g.winner != null ? g.winner : overrides[g.id];
+    if (!winner) continue;
+    if (p.winner === winner) score += (p.value || 0);
+  }
+  return score;
+}
+function computeScenarioSummary(wk, w, undecided, scope){
+  const allPlayers = Object.keys(STATE.players);
+  let pool = allPlayers.map(pid => {
+    const pick = STATE.picks[pickDocId(wk, pid)];
+    return { pid, pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)) };
+  });
+  if (scope === 'weekly') pool = pool.filter(r => !!r.pick);
+  const me = pool.find(r => r.pid === session.playerId);
+  if (!me) return { noData: true };
+  // The weekly cash prize skips hammer/insurance weeks entirely — a player on one of
+  // those weeks never occupies a prize slot, win or lose, so they're excluded below;
+  // and if it's YOUR hammer/insurance week, no outcome this week can win you the prize.
+  if (scope === 'weekly' && !me.eligible){
+    return { ineligible: true, reason: me.pick.isHammer ? 'hammer' : 'insurance' };
+  }
+
+  const n = undecided.length;
+  const totalCombos = 1 << n;
+  const comboResults = new Array(totalCombos);
+  let bestRankOverall = Infinity, worstRankOverall = 0;
+  let top3PossibleCount = 0, top3GuaranteedCount = 0, winPossibleCount = 0, winGuaranteedCount = 0;
+  let exampleTop3Combo = null, exampleWinCombo = null;
+
+  for (let i = 0; i < totalCombos; i++){
+    const overrides = {};
+    for (let j = 0; j < n; j++) overrides[undecided[j].id] = (i & (1<<j)) ? 'home' : 'away';
+    let myValue = null;
+    for (const r of pool){
+      if (r.pid !== session.playerId) continue;
+      const wscore = weeklyScoreScenario(w, r.pick, overrides);
+      myValue = scope === 'season' ? ((seasonTotal(r.pid) - weeklyScore(wk, r.pid)) + wscore) : wscore;
+    }
+    let above = 0, tied = 0;
+    for (const r of pool){
+      if (r.pid === session.playerId) continue;
+      if (scope === 'weekly' && !r.eligible) continue; // hammer/insurance weeks don't block a prize slot
+      const wscore = weeklyScoreScenario(w, r.pick, overrides);
+      const value = scope === 'season' ? ((seasonTotal(r.pid) - weeklyScore(wk, r.pid)) + wscore) : wscore;
+      if (value > myValue) above++; else if (value === myValue) tied++;
+    }
+    const bestRank = above + 1;
+    const worstRank = above + tied + 1;
+    comboResults[i] = { bestRank, worstRank };
+    if (bestRank < bestRankOverall) bestRankOverall = bestRank;
+    if (worstRank > worstRankOverall) worstRankOverall = worstRank;
+    if (bestRank <= 3){ top3PossibleCount++; if (!exampleTop3Combo) exampleTop3Combo = overrides; }
+    if (worstRank <= 3) top3GuaranteedCount++;
+    if (bestRank === 1){ winPossibleCount++; if (!exampleWinCombo) exampleWinCombo = overrides; }
+    if (worstRank === 1) winGuaranteedCount++;
+  }
+
+  function status(possibleCount, guaranteedCount){
+    if (guaranteedCount === totalCombos) return 'guaranteed';
+    if (possibleCount > 0) return 'possible';
+    return 'impossible';
+  }
+
+  const swingForTop3 = [], swingForWin = [];
+  for (let j = 0; j < n; j++){
+    const bit = 1 << j;
+    let matters3 = false, mattersWin = false;
+    for (let i = 0; i < totalCombos; i++){
+      if (i & bit) continue;
+      const partner = i | bit;
+      if ((comboResults[i].bestRank <= 3) !== (comboResults[partner].bestRank <= 3)) matters3 = true;
+      if ((comboResults[i].bestRank === 1) !== (comboResults[partner].bestRank === 1)) mattersWin = true;
+      if (matters3 && mattersWin) break;
+    }
+    if (matters3) swingForTop3.push(undecided[j]);
+    if (mattersWin) swingForWin.push(undecided[j]);
+  }
+
+  return {
+    scope,
+    top3Status: status(top3PossibleCount, top3GuaranteedCount),
+    winStatus: status(winPossibleCount, winGuaranteedCount),
+    bestRank: bestRankOverall, worstRank: worstRankOverall,
+    exampleTop3Combo, exampleWinCombo, swingForTop3, swingForWin
+  };
+}
+function scenarioStatusBadge(status){
+  if (status === 'guaranteed') return '<span class="badge good">Locked In</span>';
+  if (status === 'possible') return '<span class="badge gold">Still Possible</span>';
+  return '<span class="badge missed">Not Possible</span>';
+}
+function renderScenarioSection(title, result, undecided){
+  if (result.noData) return '<div class="scenario-card"><h3 style="margin:0;">' + esc(title) + '</h3><div class="empty" style="margin-top:8px;">No picks on file for you this week, so there\'s nothing to project.</div></div>';
+  if (result.ineligible){
+    const what = result.reason === 'hammer' ? "used Seau's Hammer" : 'were auto-filled by Insurance';
+    return '<div class="scenario-card"><h3 style="margin:0;">' + esc(title) + '</h3><div class="banner" style="margin-top:8px;">You ' + what + ' this week, so this week isn\'t eligible for the weekly prize — no outcome below can win you Top 3 or the weekly cash prize, whatever the score.</div></div>';
+  }
+  const gamesById = {}; undecided.forEach(g => gamesById[g.id] = g);
+  function comboList(combo){
+    if (!combo) return '';
+    return '<ul>' + Object.entries(combo).map(([gid,side]) => {
+      const g = gamesById[gid]; if (!g) return '';
+      const team = side === 'away' ? g.away : g.home;
+      return '<li>' + esc(team) + ' win' + (g.league ? ' <span class="muted">(' + esc(g.league) + ')</span>' : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+  function swingList(games){
+    if (!games.length) return '<p class="muted" style="margin:4px 0 0;">Nothing left on the board changes this.</p>';
+    return '<ul>' + games.map(g => '<li>' + esc(g.away) + ' @ ' + esc(g.home) + '</li>').join('') + '</ul>';
+  }
+  let html = '<div class="scenario-card"><h3 style="margin:0 0 10px;">' + esc(title) + '</h3>';
+  if (result.scope === 'weekly') html += '<p class="muted" style="margin:0 0 10px;">Ranked for the weekly prize — players on a hammer or insurance week this week are skipped here, since they can\'t take a prize slot either way.</p>';
+  html += '<div class="scenario-row"><strong>Top 3:</strong> ' + scenarioStatusBadge(result.top3Status) + '</div>';
+  if (result.top3Status === 'possible'){ html += '<p class="muted" style="margin:6px 0 0;">One way it happens:</p>' + comboList(result.exampleTop3Combo); }
+  if (result.top3Status !== 'guaranteed'){ html += '<p class="muted" style="margin:8px 0 0;">Games still in play for Top 3:</p>' + swingList(result.swingForTop3); }
+  if (result.top3Status === 'impossible') html += '<p class="muted" style="margin:8px 0 0;">Best possible finish this week: ' + ordinal(result.bestRank) + '.</p>';
+  html += '<div class="scenario-row" style="margin-top:14px;"><strong>Win it outright:</strong> ' + scenarioStatusBadge(result.winStatus) + '</div>';
+  if (result.winStatus === 'possible'){ html += '<p class="muted" style="margin:6px 0 0;">One way it happens:</p>' + comboList(result.exampleWinCombo); }
+  if (result.winStatus !== 'guaranteed'){ html += '<p class="muted" style="margin:8px 0 0;">Games still in play for the win:</p>' + swingList(result.swingForWin); }
+  html += '</div>';
+  return html;
+}
+function renderScenarios(){
+  const wk = scenariosViewWeek != null ? scenariosViewWeek : STATE.meta.currentWeek;
+  const w = getWeek(wk);
+  let html = '<label>Viewing</label><select onchange="App.setScenariosWeek(this.value)">' + weekOptions(wk) + '</select>';
+  if (!w || !w.games || !w.games.length) return html + '<div class="empty" style="margin-top:14px;">No games have been posted for Week ' + esc(wk) + ' yet.</div>';
+
+  const collegeGames = w.games.filter(g => !g.isTiebreaker && g.league === 'College');
+  const collegeFinal = collegeGames.every(g => g.winner != null);
+  if (!collegeFinal){
+    const remaining = collegeGames.filter(g => g.winner == null).length;
+    html += '<div class="banner" style="margin-top:14px;">🔒 Scenarios unlock once all of Week ' + esc(wk) + '\'s college games are final — ' + remaining + ' college game' + (remaining===1?' is':'s are') + ' still being played.</div>';
+    return html;
+  }
+
+  const undecided = w.games.filter(g => !g.isTiebreaker && g.winner == null);
+  if (!undecided.length){
+    html += '<div class="banner" style="margin-top:14px;">Week ' + esc(wk) + ' is fully decided. Check the Standings tab for final results.</div>';
+    return html;
+  }
+  if (undecided.length > 14){
+    html += '<div class="empty" style="margin-top:14px;">Too many games still in play to compute scenarios for this week yet.</div>';
+    return html;
+  }
+
+  html += '<p class="muted" style="margin-top:12px;">Based on ' + undecided.length + ' remaining game' + (undecided.length===1?'':'s') + ' this week, with every other player\'s picks already locked in.</p>';
+  html += renderScenarioSection('This Week', computeScenarioSummary(wk, w, undecided, 'weekly'), undecided);
+  html += renderScenarioSection('Season (projected once this week wraps)', computeScenarioSummary(wk, w, undecided, 'season'), undecided);
   return html;
 }
 function ptsBadge(value, gameWinner, pickWinner){
@@ -1575,7 +1744,7 @@ const App = {
     view = v;
     (async () => {
       try {
-        if (v === 'standings') await loadAllWeeksAndPicks();
+        if (v === 'standings' || v === 'scenarios') await loadAllWeeksAndPicks();
         else if (v === 'picks') {
           const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
           await loadWeekGames(wk);
@@ -1597,6 +1766,7 @@ const App = {
   setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
   setStandingsWeek(v){ standingsViewWeek = parseInt(v,10); render(); },
   setStandingsSearch(v){ standingsSearch = v; render(); },
+  setScenariosWeek(v){ scenariosViewWeek = parseInt(v,10); render(); },
   findMe(sectionId){
     const wrap = document.getElementById(sectionId + '-wrap');
     const row = document.getElementById(sectionId + '-body-me');
