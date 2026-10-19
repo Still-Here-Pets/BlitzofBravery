@@ -288,6 +288,12 @@
   .team-box.mine { box-shadow: inset 0 0 0 2px var(--info), inset 0 0 14px rgba(95,174,255,0.25); border-radius: 8px; }
   .team-box.picked.mine { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 5px var(--info), inset 0 0 14px rgba(255,214,10,0.25); border-radius: 8px; }
   .your-pick-tag { font-size: 12px; font-weight: 800; color: var(--info); text-transform: uppercase; letter-spacing: 0.04em; text-shadow: 0 0 3px rgba(95,174,255,0.45); }
+  .tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--brick); margin-left: 3px; vertical-align: top; box-shadow: 0 0 0 2px var(--bg-elevated); }
+  .mention-chip { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--info); font-weight: 700; border-radius: 4px; padding: 0 3px; }
+  .board-msg .card.mentioned-me { box-shadow: inset 0 0 0 2px var(--info); }
+  .mention-suggest { position: relative; margin-top: 4px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px var(--shadow); }
+  .mention-suggest button { display: block; width: 100%; text-align: left; padding: 8px 10px; border: none; background: none; color: var(--ink); font-size: 14px; cursor: pointer; }
+  .mention-suggest button:hover, .mention-suggest button:focus { background: color-mix(in srgb, var(--info) 14%, transparent); }
   .scenario-row { display: flex; align-items: center; gap: 8px; font-size: 15px; }
   .scenario-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 14px; }
   .scenario-card ul { margin: 6px 0 0 18px; padding: 0; font-size: 13.5px; }
@@ -491,6 +497,10 @@ let boardComposeFile = null;
 let boardReplyTo = null;
 let boardReplyFile = null;
 let boardCollapsed = {}; // { [messageId]: true } when that message's replies are hidden
+let composeMentions = []; // playerIds confirmed-mentioned in the top-level compose box, via @ autocomplete
+let replyMentions = {}; // { [parentId]: playerIds[] } same, per open reply box
+let mentionTarget = null; // { isReply, parentId } for whichever box is currently showing @ suggestions, else null
+let mentionQuery = '';
 let standingsViewWeek = null;
 let standingsSearch = '';
 let scenariosViewWeek = null;
@@ -516,6 +526,7 @@ function pwField(id, placeholder){
     '<button type="button" class="pw-toggle" onclick="App.togglePwVisible(\'' + id + '\', this)">Show</button></div>';
 }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeRegex(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function normId(name){ return String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40); }
 function newId(){ return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2)); }
 function weekKey(n){ return String(n); }
@@ -586,11 +597,30 @@ async function loadAllWeeksAndPicks(){
   STATE.picks = {};
   (pickRows||[]).forEach(p => { STATE.picks[pickDocId(p.week_number, p.player_id)] = rowToPick(p); });
 }
+async function checkBoardUnseen(){
+  try {
+    const wk = STATE.meta.currentWeek;
+    const { data } = await sb.from('messages').select('created_at').eq('week_number', wk).order('created_at', { ascending: false }).limit(1);
+    STATE.meta.boardLatestAt = (data && data[0]) ? data[0].created_at : null;
+  } catch(e){ /* non-fatal — badge just stays as it was */ }
+}
+function markBoardSeen(wk){
+  try { localStorage.setItem('blitzBoardSeen_' + wk, new Date().toISOString()); } catch(e){}
+}
+function hasUnseenBoardMessages(){
+  try {
+    const wk = STATE.meta.currentWeek;
+    const latest = STATE.meta.boardLatestAt;
+    if (!latest) return false;
+    const seen = localStorage.getItem('blitzBoardSeen_' + wk);
+    return !seen || new Date(latest) > new Date(seen);
+  } catch(e){ return false; }
+}
 async function loadBoardMessages(wk){
   const { data, error } = await sb.from('messages').select('*').eq('week_number', wk).order('created_at', { ascending: true });
   if (error) throw error;
   const rows = data || [];
-  STATE.messages[wk] = rows.map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at, editedAt: m.edited_at, parentId: m.parent_id, mediaUrl: m.media_url, mediaType: m.media_type }));
+  STATE.messages[wk] = rows.map(m => ({ id: m.id, week: m.week_number, playerId: m.player_id, displayName: m.display_name, body: m.body, createdAt: m.created_at, editedAt: m.edited_at, parentId: m.parent_id, mediaUrl: m.media_url, mediaType: m.media_type, mentions: m.mentions || [] }));
   STATE.reactions = STATE.reactions || {};
   const ids = rows.map(m => m.id);
   ids.forEach(id => { STATE.reactions[id] = []; });
@@ -722,11 +752,14 @@ function renderTopbar(){
   '</div>';
 }
 function renderTabs(){
-  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('standings','Standings') + tabBtn('scenarios','Scenarios') + tabBtn('board','Board') + tabBtn('hof','Hall of Fame') +
+  const boardUnseen = hasUnseenBoardMessages();
+  return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('scenarios','Sunday Scenarios') + tabBtn('standings','Standings') +
+    tabBtn('board', 'Board' + (boardUnseen ? ' <span class="tab-dot"></span>' : '')) +
+    tabBtn('hof','Hall of Fame') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
     tabBtn('profile','Profile') + '</div>';
 }
-function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':'') + '" onclick="App.setView(\'' + id + '\')">' + esc(label) + '</button>'; }
+function tabBtn(id,label){ return '<button class="tab ' + (view===id?'active':'') + '" onclick="App.setView(\'' + id + '\')">' + label + '</button>'; }
 
 function renderLogin(){
   return '<div class="login-hero">' +
@@ -825,13 +858,28 @@ function timeAgo(iso){
   if (days < 7) return days + 'd ago';
   return new Date(iso).toLocaleDateString();
 }
+function mentionCandidates(query){
+  const q = (query||'').toLowerCase();
+  return Object.entries(STATE.players)
+    .filter(([pid,p]) => (p.displayName||'').toLowerCase().includes(q))
+    .slice(0,6);
+}
+function renderMentionSuggest(query, isReply, parentId){
+  const matches = mentionCandidates(query);
+  if (!matches.length) return '';
+  return '<div class="mention-suggest">' + matches.map(([pid,p]) =>
+    '<button type="button" onmousedown="event.preventDefault();App.insertMention(\'' + pid + '\',\'' + esc(p.displayName) + '\',' + (isReply ? ('true,\''+parentId+'\'') : 'false') + ')">' + esc(p.displayName) + '</button>'
+  ).join('') + '</div>';
+}
 function renderComposeBox(parentId){
   const isReply = !!parentId;
   const taId = isReply ? 'board-reply-ta-' + parentId : 'board-compose';
   const fileInputId = isReply ? 'board-reply-file-' + parentId : 'board-compose-file';
   const file = isReply ? boardReplyFile : boardComposeFile;
   const counterId = isReply ? 'board-reply-counter-' + parentId : 'board-counter';
-  let html = '<textarea id="' + taId + '" rows="' + (isReply?2:3) + '" maxlength="' + BOARD_MAX_LEN + '" placeholder="' + (isReply ? 'Write a reply…' : 'Say something about this week…') + '" style="width:100%;resize:vertical;" oninput="document.getElementById(\'' + counterId + '\').textContent = this.value.length + \'/' + BOARD_MAX_LEN + '\'"></textarea>' +
+  const suggestId = isReply ? 'mention-suggest-' + parentId : 'mention-suggest-top';
+  let html = '<textarea id="' + taId + '" rows="' + (isReply?2:3) + '" maxlength="' + BOARD_MAX_LEN + '" placeholder="' + (isReply ? 'Write a reply… (@ to mention someone)' : 'Say something about this week… (@ to mention someone)') + '" style="width:100%;resize:vertical;" oninput="App.onComposeInput(this, \'' + counterId + '\', ' + isReply + (isReply ? (", '"+parentId+"'") : ', null') + ')"></textarea>' +
+    '<div id="' + suggestId + '"></div>' +
     '<div class="muted" id="' + counterId + '" style="text-align:right;font-size:12px;">0/' + BOARD_MAX_LEN + '</div>';
   if (file){
     html += '<div class="media-file-chip">📎 ' + esc(file.name) + ' <button type="button" onclick="App.' + (isReply?'clearReplyFile()':'clearComposeFile()') + '">&times;</button></div>';
@@ -848,6 +896,17 @@ function renderMessageMedia(m){
   if (!m.mediaUrl) return '';
   if (m.mediaType === 'video') return '<video class="board-media" src="' + esc(m.mediaUrl) + '" controls playsinline></video>';
   return '<img class="board-media" src="' + esc(m.mediaUrl) + '" alt="" loading="lazy">';
+}
+function renderMessageBody(m){
+  let body = esc(m.body);
+  (m.mentions || []).forEach(pid => {
+    const p = STATE.players[pid];
+    if (!p || !p.displayName) return;
+    const name = esc(p.displayName);
+    const re = new RegExp('@' + escapeRegex(name) + '(?!\\w)', 'g');
+    body = body.replace(re, '<span class="mention-chip">@' + name + '</span>');
+  });
+  return body;
 }
 function reactionBar(messageId){
   const reacts = STATE.reactions[messageId] || [];
@@ -872,11 +931,13 @@ function renderMessageCard(m, depth){
         '<button class="btn" onclick="App.cancelEdit()">Cancel</button>' +
       '</div></div>';
   } else {
-    html += '<div class="card" style="margin-bottom:8px;">' +
+    const mentionsMe = (m.mentions || []).includes(session.playerId);
+    html += '<div class="card ' + (mentionsMe ? 'mentioned-me' : '') + '" style="margin-bottom:8px;">' +
+      (mentionsMe ? '<div class="badge" style="background:var(--info);color:#06121f;margin-bottom:6px;">@ you</div>' : '') +
       '<div class="row" style="align-items:center;"><div><strong>' + esc(m.displayName) + '</strong>' + champBadge(m.playerId) + ' <span class="muted">' + timeAgo(m.createdAt) + (m.editedAt ? ' (edited)' : '') + '</span></div>' +
       (mine ? '<div style="flex:0 0 auto;display:flex;gap:6px;"><button class="btn" onclick="App.startEdit(\'' + m.id + '\')">Edit</button><button class="btn" onclick="App.deleteMessage(\'' + m.id + '\')">Delete</button></div>' : '') +
       '</div>' +
-      (m.body ? '<div style="margin-top:6px;white-space:pre-wrap;">' + esc(m.body) + '</div>' : '') +
+      (m.body ? '<div style="margin-top:6px;white-space:pre-wrap;">' + renderMessageBody(m) + '</div>' : '') +
       renderMessageMedia(m) +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;">' + reactionBar(m.id) +
         '<button class="btn" style="flex:0 0 auto;" onclick="App.startReply(\'' + m.id + '\')">💬 Reply</button>' +
@@ -1754,7 +1815,7 @@ const App = {
           if (viewingPlayerId) await loadOwnPick(wk, viewingPlayerId);
         }
         else if (v === 'admin') { await loadProfiles(); await loadScheduleCache(); await loadHallOfFame(); }
-        else if (v === 'board') { await loadBoardMessages(boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek); }
+        else if (v === 'board') { const bwk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek; await loadBoardMessages(bwk); markBoardSeen(bwk); }
         else if (v === 'hof') { await loadHallOfFame(); }
         render();
       } catch(e){ showError(e); }
@@ -1786,15 +1847,55 @@ const App = {
   async setBoardWeek(v){
     const n = parseInt(v, 10);
     boardViewWeek = n;
-    try { await loadBoardMessages(n); render(); } catch(e){ showError(e); }
+    try { await loadBoardMessages(n); markBoardSeen(n); render(); } catch(e){ showError(e); }
   },
   setComposeFile(file){ boardComposeFile = file || null; render(); },
   clearComposeFile(){ boardComposeFile = null; render(); },
   setReplyFile(file){ boardReplyFile = file || null; render(); },
   clearReplyFile(){ boardReplyFile = null; render(); },
-  startReply(id){ boardReplyTo = id; boardReplyFile = null; render(); },
-  cancelReply(){ boardReplyTo = null; boardReplyFile = null; render(); },
+  startReply(id){ boardReplyTo = id; boardReplyFile = null; replyMentions[id] = []; render(); },
+  cancelReply(){ if (boardReplyTo) delete replyMentions[boardReplyTo]; boardReplyTo = null; boardReplyFile = null; mentionTarget = null; render(); },
   toggleThread(id){ boardCollapsed[id] = !boardCollapsed[id]; render(); },
+  onComposeInput(el, counterId, isReply, parentId){
+    const counter = document.getElementById(counterId);
+    if (counter) counter.textContent = el.value.length + '/' + BOARD_MAX_LEN;
+    const suggestId = isReply ? 'mention-suggest-' + parentId : 'mention-suggest-top';
+    const container = document.getElementById(suggestId);
+    if (!container) return;
+    const caret = el.selectionStart;
+    const before = el.value.slice(0, caret);
+    const m = /(^|\s)@([^\s@]{0,30})$/.exec(before);
+    if (!m){ container.innerHTML = ''; mentionTarget = null; return; }
+    mentionTarget = { isReply, parentId: parentId || null };
+    mentionQuery = m[2];
+    container.innerHTML = renderMentionSuggest(mentionQuery, isReply, parentId);
+  },
+  insertMention(pid, displayName, isReply, parentId){
+    const taId = isReply ? 'board-reply-ta-' + parentId : 'board-compose';
+    const counterId = isReply ? 'board-reply-counter-' + parentId : 'board-counter';
+    const suggestId = isReply ? 'mention-suggest-' + parentId : 'mention-suggest-top';
+    const el = document.getElementById(taId);
+    if (!el) return;
+    const caret = el.selectionStart;
+    const before = el.value.slice(0, caret);
+    const after = el.value.slice(caret);
+    const replaced = before.replace(/(^|\s)@([^\s@]{0,30})$/, (full, lead) => lead + '@' + displayName + ' ');
+    el.value = replaced + after;
+    const newCaret = replaced.length;
+    el.focus();
+    el.setSelectionRange(newCaret, newCaret);
+    if (isReply){
+      replyMentions[parentId] = replyMentions[parentId] || [];
+      if (!replyMentions[parentId].includes(pid)) replyMentions[parentId].push(pid);
+    } else {
+      if (!composeMentions.includes(pid)) composeMentions.push(pid);
+    }
+    const container = document.getElementById(suggestId);
+    if (container) container.innerHTML = '';
+    mentionTarget = null;
+    const counter = document.getElementById(counterId);
+    if (counter) counter.textContent = el.value.length + '/' + BOARD_MAX_LEN;
+  },
   async postMessage(){
     const wk = boardViewWeek != null ? boardViewWeek : STATE.meta.currentWeek;
     const el = document.getElementById('board-compose');
@@ -1805,11 +1906,14 @@ const App = {
       setLoading(true);
       let media = {};
       if (file) media = await uploadBoardMedia(file);
-      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body, media_url: media.mediaUrl || null, media_type: media.mediaType || null });
+      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body, media_url: media.mediaUrl || null, media_type: media.mediaType || null, mentions: composeMentions });
       if (error) throw error;
       el.value = '';
       boardComposeFile = null;
+      composeMentions = [];
+      mentionTarget = null;
       await loadBoardMessages(wk);
+      markBoardSeen(wk);
       render();
     } catch(e){ showError(e); } finally { setLoading(false); }
   },
@@ -1823,11 +1927,14 @@ const App = {
       setLoading(true);
       let media = {};
       if (file) media = await uploadBoardMedia(file);
-      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body, parent_id: parentId, media_url: media.mediaUrl || null, media_type: media.mediaType || null });
+      const { error } = await sb.from('messages').insert({ week_number: wk, player_id: session.playerId, display_name: session.displayName, body, parent_id: parentId, media_url: media.mediaUrl || null, media_type: media.mediaType || null, mentions: replyMentions[parentId] || [] });
       if (error) throw error;
+      delete replyMentions[parentId];
       boardReplyTo = null;
       boardReplyFile = null;
+      mentionTarget = null;
       await loadBoardMessages(wk);
+      markBoardSeen(wk);
       render();
     } catch(e){ showError(e); } finally { setLoading(false); }
   },
@@ -2449,6 +2556,10 @@ async function boot(){
     await loadProfiles();
     if (session.playerId) await loadOwnPick(STATE.meta.currentWeek, session.playerId);
     view = session.playerId ? 'picks' : 'login';
+    if (session.playerId){
+      await checkBoardUnseen();
+      setInterval(async () => { await checkBoardUnseen(); render(); }, 45000);
+    }
     render();
   } catch(e){ showError(e); } finally { setLoading(false); }
 }
