@@ -754,7 +754,7 @@ function renderTopbar(){
 function renderTabs(){
   const boardUnseen = hasUnseenBoardMessages();
   return '<div class="tabs">' + tabBtn('picks','My Picks') + tabBtn('scenarios','Sunday Scenarios') + tabBtn('standings','Standings') +
-    tabBtn('board', 'Board' + (boardUnseen ? ' <span class="tab-dot"></span>' : '')) +
+    tabBtn('board', 'Board of Bravery' + (boardUnseen ? ' <span class="tab-dot"></span>' : '')) +
     tabBtn('hof','Hall of Fame') +
     (session.isAdmin ? tabBtn('admin','Admin') : '') +
     tabBtn('profile','Profile') + '</div>';
