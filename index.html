@@ -16,18 +16,21 @@
     --bg: #0B2016; --bg-elevated: #15301F; --turf: #1D6B3C; --turf-ink: #FFFFFF;
     --gold: #FFB612; --ink: #F3F6F2; --muted: #9DB3A4; --brick: #D22630;
     --leather: #7B4B2A; --good: #3FA85A; --border: rgba(255,182,18,0.18); --shadow: rgba(0,0,0,0.4);
+    --info: #5FAEFF;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
       --bg: #F0F2ED; --bg-elevated: #FFFFFF; --turf: #1C5C35; --turf-ink: #FFFFFF;
       --gold: #C9890A; --ink: #16231A; --muted: #5B6E5F; --brick: #B5202C;
       --leather: #8A5A32; --good: #28793F; --border: rgba(123,75,42,0.18); --shadow: rgba(0,0,0,0.12);
+      --info: #1E6FD9;
     }
   }
   :root[data-theme="light"] {
     --bg: #F0F2ED; --bg-elevated: #FFFFFF; --turf: #1C5C35; --turf-ink: #FFFFFF;
     --gold: #C9890A; --ink: #16231A; --muted: #5B6E5F; --brick: #B5202C;
     --leather: #8A5A32; --good: #28793F; --border: rgba(123,75,42,0.18); --shadow: rgba(0,0,0,0.12);
+    --info: #1E6FD9;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -282,6 +285,9 @@
   .team-box { flex: 1; padding: 12px 8px 20px; text-align: center; position: relative; }
   .team-box + .team-box { border-left: 1px solid rgba(255,255,255,0.12); }
   .team-box.picked { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 14px rgba(255,214,10,0.25); border-radius: 8px; }
+  .team-box.mine { box-shadow: inset 0 0 0 2px var(--info), inset 0 0 14px rgba(95,174,255,0.25); border-radius: 8px; }
+  .team-box.picked.mine { box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 5px var(--info), inset 0 0 14px rgba(255,214,10,0.25); border-radius: 8px; }
+  .your-pick-tag { font-size: 12px; font-weight: 800; color: var(--info); text-transform: uppercase; letter-spacing: 0.04em; text-shadow: 0 0 3px rgba(95,174,255,0.45); }
   .team-name {
     color: #FAFAF8; font-weight: 800; font-size: 14px; letter-spacing: 0.02em; text-transform: uppercase;
     margin-bottom: 10px; min-height: 2.2em; display: flex; align-items: center; justify-content: center;
@@ -935,17 +941,20 @@ function renderPointsSummary(wk, regularGames, pid){
     '<div class="points-summary-sub">' + correct + ' correct of ' + decided + ' decided so far</div>' +
   '</div>';
 }
-function renderScorecard(g, pickWinner, isSkipped, footHtml){
+function renderScorecard(g, pickWinner, isSkipped, footHtml, comparePick, pickLabel){
   const hasScore = g.awayScore != null || g.homeScore != null;
   const statusClass = g.winner ? 'final' : (hasScore ? 'live' : 'scheduled');
   const statusText = g.winner ? 'FINAL' : (hasScore ? 'LIVE' : kickoffLabel(g.kickoff));
+  const label = pickLabel || 'Your Pick';
   function box(side, name){
     const isWinner = g.winner === side;
     const isLoser = g.winner && g.winner !== side;
     const isPicked = pickWinner === side;
+    const isMine = comparePick === side;
     const tags = (isWinner ? '<div class="win-tag">&#9733; Winner</div>' : '') +
-      (isPicked ? '<div class="pick-tag">Your Pick</div>' : '');
-    return '<div class="team-box ' + (isPicked?'picked ':'') + (isWinner?'winner ':'') + (isLoser?'loser ':'') + '">' +
+      (isPicked ? '<div class="pick-tag">' + esc(label) + '</div>' : '') +
+      (isMine ? '<div class="your-pick-tag">Your Pick</div>' : '');
+    return '<div class="team-box ' + (isPicked?'picked ':'') + (isMine?'mine ':'') + (isWinner?'winner ':'') + (isLoser?'loser ':'') + '">' +
       '<div class="team-name">' + esc(name) + '</div>' +
       '<div class="team-score">' + (hasScore ? (side==='away' ? (g.awayScore??0) : (g.homeScore??0)) : '–') + '</div>' +
       (tags ? '<div class="team-tags">' + tags + '</div>' : '') +
@@ -1059,11 +1068,23 @@ function otherPlayersOptions(selectedId){
   list.forEach(([pid,p]) => { html += '<option value="' + pid + '" ' + (selectedId===pid?'selected':'') + '>' + esc(p.displayName) + '</option>'; });
   return html;
 }
+function gameStatusPriority(g){
+  // Not-yet-played first, then live, then final — so upcoming games surface at
+  // the top of a comparison view instead of being buried under decided ones.
+  const hasScore = g.awayScore != null || g.homeScore != null;
+  if (g.winner) return 2;
+  if (hasScore) return 1;
+  return 0;
+}
 function renderOtherPlayerPicks(wk, w, pid){
   const name = (STATE.players[pid]||{}).displayName || 'This player';
-  const regular = w.games.filter(g => !g.isTiebreaker);
+  const regular = w.games.filter(g => !g.isTiebreaker)
+    .map((g, idx) => ({ g, idx }))
+    .sort((a, b) => (gameStatusPriority(a.g) - gameStatusPriority(b.g)) || (a.idx - b.idx))
+    .map(x => x.g);
   const tb = w.games.find(g => g.isTiebreaker);
   const p = STATE.picks[pickDocId(wk, pid)];
+  const mine = STATE.picks[pickDocId(wk, session.playerId)];
   let html = '<h3 style="margin:14px 0 4px;">' + esc(name) + '’s Picks — Week ' + esc(wk) + '</h3>';
   if (!p){
     html += '<div class="empty">' + esc(name) + ' did not submit picks for Week ' + esc(wk) + '.</div>';
@@ -1076,26 +1097,33 @@ function renderOtherPlayerPicks(wk, w, pid){
     if (entry){
       const [gameId, pick] = entry;
       const hg = w.games.find(g => g.id === gameId);
-      if (hg) html += renderScorecard(hg, pick.winner, false, '<span>' + ptsBadge(55, hg.winner, pick.winner) + ' (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>');
+      const myPick = mine ? (mine.gamePicks||{})[gameId] : null;
+      if (hg) html += renderScorecard(hg, pick.winner, false, '<span>' + ptsBadge(55, hg.winner, pick.winner) + ' (Hammer)</span><span>' + (hg.winner ? gradeBadge(hg.winner, pick.winner) : 'Pending') + '</span>', myPick ? myPick.winner : null, 'Their Pick');
     }
   } else {
     regular.forEach(g => {
       const isSkipped = p.omitGameId === g.id;
       const pick = (p.gamePicks && p.gamePicks[g.id]) || {};
-      const foot = isSkipped ? '<span>Skipped this week</span>' :
-        (pick.winner ? '<span>' + (pick.value?ptsBadge(pick.value, g.winner, pick.winner):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
-      html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
+      const myIsSkipped = mine && mine.omitGameId === g.id;
+      const myPick = (mine && mine.gamePicks && mine.gamePicks[g.id]) || {};
+      const theirFoot = isSkipped ? 'Skipped' : (pick.winner ? (g.away && pick.winner==='away'?g.away:(pick.winner==='home'?g.home:'')) + (pick.value?' · '+pick.value+' pts':'') : 'No pick');
+      const myFoot = myIsSkipped ? 'Skipped' : (myPick.winner ? (myPick.winner==='away'?g.away:g.home) + (myPick.value?' · '+myPick.value+' pts':'') : 'No pick');
+      const foot = '<span>Them: ' + esc(theirFoot) + (pick.winner && g.winner ? gradeBadge(g.winner, pick.winner) : '') + '</span>' +
+        '<span>You: ' + esc(myFoot) + (myPick.winner && g.winner ? gradeBadge(g.winner, myPick.winner) : '') + '</span>';
+      html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot, myIsSkipped ? null : myPick.winner, 'Their Pick');
     });
   }
   if (tb){
     const tbp = p.tiebreaker || {};
+    const myTbp = (mine && mine.tiebreaker) || {};
     const actualTotal = (tb.awayScore!=null && tb.homeScore!=null) ? (tb.awayScore+tb.homeScore) : null;
     const pickedName = tbp.winner === 'away' ? tb.away : (tbp.winner === 'home' ? tb.home : null);
-    const foot = '<span>Predicted total: ' + esc(tbp.total==null?'—':tbp.total) + '</span>' +
-      (pickedName ? '<span>Picked: <strong>' + esc(pickedName) + '</strong></span>' : '<span>No winner picked</span>') +
-      (actualTotal!=null ? '<span>Actual total: <strong>' + actualTotal + '</strong></span>' : '<span>Tiebreaker pending</span>');
+    const myPickedName = myTbp.winner === 'away' ? tb.away : (myTbp.winner === 'home' ? tb.home : null);
+    const foot = '<span>Them: ' + (pickedName ? esc(pickedName) + ', total ' + esc(tbp.total==null?'—':tbp.total) : 'No pick') + '</span>' +
+      '<span>You: ' + (myPickedName ? esc(myPickedName) + ', total ' + esc(myTbp.total==null?'—':myTbp.total) : 'No pick') + '</span>' +
+      (actualTotal!=null ? '<span>Actual total: <strong>' + actualTotal + '</strong></span>' : '<span>Pending</span>');
     html += '<div style="margin-bottom:4px;"><span class="badge gold">MONDAY NIGHT TIEBREAKER</span></div>' +
-      renderScorecard(tb, tbp.winner, false, foot);
+      renderScorecard(tb, tbp.winner, false, foot, myTbp.winner, 'Their Pick');
   }
   return html;
 }
