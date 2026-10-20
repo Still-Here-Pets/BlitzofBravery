@@ -14,20 +14,39 @@ const { createClient } = require('@supabase/supabase-js');
 // night game finishes (observed: schedule_cache stalled on the just-finished
 // week for days, silently starving the admin's picker of the next week's NFL
 // games, even though College kept working since its `groups`/`limit` params
-// already pull a wide multi-week net). Pin an explicit 9-day window — today
-// through +8 days — so every sync always covers the full Thu-through-Mon
-// slate of both the current and the next NFL week, regardless of ESPN's own
-// week cursor.
+// already pull a wide multi-week net).
 //
-// ESPN's NFL scoreboard rejects a `dates` range wider than roughly a week with
-// a plain HTTP 400 ("Failed to get events endpoint") — confirmed by testing:
-// an 8-day-out range (today..+8) 400'd, a 6-day-out range (today..+6) worked.
-// Keep this comfortably inside that limit.
-function nflScoreboardUrl() {
+// A `dates=START-END` range param, which works for the College endpoint,
+// reliably 400s on the NFL endpoint ("Failed to get events endpoint") — true
+// even for a 6-day range, so this isn't just a "too wide" limit, the range
+// form seems to not be supported at all here. A single `dates=YYYYMMDD` (no
+// range) does work reliably, so fetch each day in the window separately and
+// merge, instead of asking for a range in one call.
+function nflScoreboardUrls(daysAhead) {
   const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
-  const start = new Date();
-  const end = new Date(start.getTime() + 6 * 24 * 3600 * 1000);
-  return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${fmt(start)}-${fmt(end)}`;
+  const urls = [];
+  for (let i = 0; i <= daysAhead; i++) {
+    const d = new Date(Date.now() + i * 24 * 3600 * 1000);
+    urls.push(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${fmt(d)}`);
+  }
+  return urls;
+}
+async function fetchNflEvents() {
+  const urls = nflScoreboardUrls(6);
+  const perDay = await Promise.all(urls.map(async u => {
+    try {
+      const r = await fetch(u);
+      const text = await r.text();
+      let json; try { json = JSON.parse(text); } catch (e) { return { url: u, status: r.status, error: 'non-JSON body: ' + text.slice(0, 150) }; }
+      if (!r.ok) return { url: u, status: r.status, error: (json && json.message) || 'HTTP ' + r.status };
+      return { url: u, status: r.status, events: json.events || [] };
+    } catch (e) {
+      return { url: u, status: null, error: e.message };
+    }
+  }));
+  const byId = new Map();
+  perDay.forEach(d => (d.events || []).forEach(ev => byId.set(ev.id, ev)));
+  return { events: Array.from(byId.values()), perDay };
 }
 const ESPN_CFB = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300';
 const ESPN_CFB_RANKINGS = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings';
@@ -93,21 +112,16 @@ module.exports = async (req, res) => {
   const results = { nfl: 0, cfb: 0, graded: 0, errors: [] };
 
   try {
-    const nflUrl = nflScoreboardUrl();
-    const [nflHttp, cfbHttp] = await Promise.all([fetch(nflUrl), fetch(ESPN_CFB)]);
-    // Temporary diagnostics: surface exactly what ESPN's NFL endpoint actually
-    // returned (status + raw event count), since the production fetch has been
-    // silently coming back with 0 NFL events and we need to see why before
-    // trying another fix blind. Safe to remove once nfl stops reading 0.
-    const nflText = await nflHttp.text();
-    let nflRes = {};
-    try { nflRes = JSON.parse(nflText); } catch (e) { results.errors.push('NFL response was not valid JSON: ' + nflText.slice(0, 200)); }
-    results.debugNflUrl = nflUrl;
-    results.debugNflStatus = nflHttp.status;
-    results.debugNflEventCount = (nflRes.events || []).length;
-    if (nflRes.events === undefined) results.debugNflBodyPreview = nflText.slice(0, 300);
-
-    const [cfbRes, apRankById] = await Promise.all([cfbHttp.json(), fetchApRankById()]);
+    const [nflRes, cfbRes, apRankById] = await Promise.all([
+      fetchNflEvents(),
+      fetch(ESPN_CFB).then(r => r.json()),
+      fetchApRankById()
+    ]);
+    // Temporary diagnostics: surface per-day status so we can see at a glance
+    // if any individual day's fetch is failing. Safe to remove once this is
+    // confirmed stable over a few runs.
+    results.debugNflEventCount = nflRes.events.length;
+    results.debugNflPerDay = nflRes.perDay.map(d => ({ url: d.url, status: d.status, count: d.events ? d.events.length : undefined, error: d.error }));
 
     const games = [
       ...parseEvents(nflRes, 'NFL', null),
