@@ -88,11 +88,21 @@ module.exports = async (req, res) => {
   const results = { nfl: 0, cfb: 0, graded: 0, errors: [] };
 
   try {
-    const [nflRes, cfbRes, apRankById] = await Promise.all([
-      fetch(nflScoreboardUrl()).then(r => r.json()),
-      fetch(ESPN_CFB).then(r => r.json()),
-      fetchApRankById()
-    ]);
+    const nflUrl = nflScoreboardUrl();
+    const [nflHttp, cfbHttp] = await Promise.all([fetch(nflUrl), fetch(ESPN_CFB)]);
+    // Temporary diagnostics: surface exactly what ESPN's NFL endpoint actually
+    // returned (status + raw event count), since the production fetch has been
+    // silently coming back with 0 NFL events and we need to see why before
+    // trying another fix blind. Safe to remove once nfl stops reading 0.
+    const nflText = await nflHttp.text();
+    let nflRes = {};
+    try { nflRes = JSON.parse(nflText); } catch (e) { results.errors.push('NFL response was not valid JSON: ' + nflText.slice(0, 200)); }
+    results.debugNflUrl = nflUrl;
+    results.debugNflStatus = nflHttp.status;
+    results.debugNflEventCount = (nflRes.events || []).length;
+    if (nflRes.events === undefined) results.debugNflBodyPreview = nflText.slice(0, 300);
+
+    const [cfbRes, apRankById] = await Promise.all([cfbHttp.json(), fetchApRankById()]);
 
     const games = [
       ...parseEvents(nflRes, 'NFL', null),
