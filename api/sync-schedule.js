@@ -8,7 +8,22 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
-const ESPN_NFL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+// ESPN's bare NFL scoreboard endpoint (no `dates` param) returns whatever ESPN
+// itself currently considers the "current week" — and that cursor does not
+// reliably roll over to the next week right after the prior week's Monday
+// night game finishes (observed: schedule_cache stalled on the just-finished
+// week for days, silently starving the admin's picker of the next week's NFL
+// games, even though College kept working since its `groups`/`limit` params
+// already pull a wide multi-week net). Pin an explicit 9-day window — today
+// through +8 days — so every sync always covers the full Thu-through-Mon
+// slate of both the current and the next NFL week, regardless of ESPN's own
+// week cursor.
+function nflScoreboardUrl() {
+  const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const start = new Date();
+  const end = new Date(start.getTime() + 8 * 24 * 3600 * 1000);
+  return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${fmt(start)}-${fmt(end)}`;
+}
 const ESPN_CFB = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300';
 const ESPN_CFB_RANKINGS = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings';
 
@@ -74,7 +89,7 @@ module.exports = async (req, res) => {
 
   try {
     const [nflRes, cfbRes, apRankById] = await Promise.all([
-      fetch(ESPN_NFL).then(r => r.json()),
+      fetch(nflScoreboardUrl()).then(r => r.json()),
       fetch(ESPN_CFB).then(r => r.json()),
       fetchApRankById()
     ]);
@@ -87,11 +102,16 @@ module.exports = async (req, res) => {
     for (const g of games) {
       const spreadText = [g.spread, g.overUnder ? ('O/U ' + g.overUnder) : null].filter(Boolean).join(' · ') || null;
 
-      // Upcoming/in-progress games: keep the schedule_cache fresh for the admin picker
+      // Keep schedule_cache fresh for the admin picker. Always clear out any old
+      // row for this matchup first — including once a game goes final — so
+      // completed games don't pile up in the cache forever (previously the
+      // delete only ran inside the `!completed` branch, so a finished game's
+      // stale row was never pruned). Only re-insert while the game is still
+      // upcoming/in-progress; a completed game has no business in the picker.
+      await sb.from('schedule_cache')
+        .delete()
+        .eq('league', g.league).eq('away', g.away).eq('home', g.home);
       if (!g.completed) {
-        await sb.from('schedule_cache')
-          .delete()
-          .eq('league', g.league).eq('away', g.away).eq('home', g.home);
         await sb.from('schedule_cache').insert({
           league: g.league, away: g.away, home: g.home, kickoff: g.kickoff,
           spread: spreadText, records: g.records, week_label: 'Live sync',
