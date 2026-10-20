@@ -18,10 +18,15 @@ const { createClient } = require('@supabase/supabase-js');
 // through +8 days — so every sync always covers the full Thu-through-Mon
 // slate of both the current and the next NFL week, regardless of ESPN's own
 // week cursor.
+//
+// ESPN's NFL scoreboard rejects a `dates` range wider than roughly a week with
+// a plain HTTP 400 ("Failed to get events endpoint") — confirmed by testing:
+// an 8-day-out range (today..+8) 400'd, a 6-day-out range (today..+6) worked.
+// Keep this comfortably inside that limit.
 function nflScoreboardUrl() {
   const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
   const start = new Date();
-  const end = new Date(start.getTime() + 8 * 24 * 3600 * 1000);
+  const end = new Date(start.getTime() + 6 * 24 * 3600 * 1000);
   return `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${fmt(start)}-${fmt(end)}`;
 }
 const ESPN_CFB = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300';
