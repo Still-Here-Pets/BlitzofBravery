@@ -117,11 +117,6 @@ module.exports = async (req, res) => {
       fetch(ESPN_CFB).then(r => r.json()),
       fetchApRankById()
     ]);
-    // Temporary diagnostics: surface per-day status so we can see at a glance
-    // if any individual day's fetch is failing. Safe to remove once this is
-    // confirmed stable over a few runs.
-    results.debugNflEventCount = nflRes.events.length;
-    results.debugNflPerDay = nflRes.perDay.map(d => ({ url: d.url, status: d.status, count: d.events ? d.events.length : undefined, error: d.error }));
 
     const games = [
       ...parseEvents(nflRes, 'NFL', null),
