@@ -200,8 +200,9 @@
   .perf { height: 0; border-top: 2px dashed var(--border); margin: 0 14px 0 18px; }
   .game-body { padding: 14px 14px 14px 18px; }
   .pick-buttons { display: flex; gap: 8px; margin-bottom: 10px; }
-  .pick-btn { flex: 1; padding: 12px 8px; border-radius: 10px; border: 2px solid var(--border); background: var(--bg); color: var(--ink); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; }
-  .pick-btn.selected { border-color: var(--gold); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 28%, var(--bg)), color-mix(in srgb, var(--gold) 16%, var(--bg))); color: var(--ink); }
+  .pick-btn { flex: 1; padding: 12px 8px; border-radius: 10px; border: 2px solid var(--border); background: var(--bg); color: var(--ink); font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; transition: background 0.1s, border-color 0.1s, box-shadow 0.1s; }
+  .pick-btn.selected { border-color: var(--gold); border-width: 3px; background: var(--gold); color: #201800; box-shadow: 0 3px 14px color-mix(in srgb, var(--gold) 55%, transparent); }
+  .pick-btn.selected .pick-team-rank { color: #201800; }
   .pick-team-name { display: block; }
   .pick-team-rank { color: var(--gold); font-weight: 800; }
   .pick-team-record { display: block; font-size: 11px; font-weight: 500; opacity: 0.65; margin-top: 2px; }
@@ -833,7 +834,7 @@ function renderProfile(){
     '<label>New password</label>' + pwField('pf-pass','At least 6 characters') +
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.changePassword()">Update password</button></div>';
   html += '<div class="card"><h3 style="margin-top:0;">How It Works</h3>' +
-    '<p>Each week has 11 games. Pick a winner for 10 of them and assign each a confidence value 1\u201310 (used once each) \u2014 skip exactly one game. 10 means you\'re most sure, 1 means you\'re least sure. There are no spreads, just straight-up winners.</p>' +
+    '<p>Each week has 11 games. Pick a winner for 10 of them and assign each a confidence value 1\u201310 (used once each) \u2014 omit exactly one game. 10 means you\'re most sure, 1 means you\'re least sure. There are no spreads, just straight-up winners.</p>' +
     '<p><strong>Tiebreaker:</strong> the Monday night game. Predict the combined total score of both teams \u2014 closest guess wins the tiebreak.</p>' +
     '<p><strong>Ties:</strong> if an NFL game ends in a tie, nobody gets points for it.</p>' +
     '<p><strong>Seau\'s Hammer:</strong> once all season, you can put all 55 points on one game instead of spreading them out. The commissioner marks which game is eligible each week. You can\'t win that week\'s prize if you use it.</p>' +
@@ -1030,7 +1031,7 @@ function renderScorecard(g, pickWinner, isSkipped, footHtml, comparePick, pickLa
   return '<div class="scorecard">' +
     (footHtml ? '<div class="scorecard-foot">' + footHtml + '</div>' : '') +
     '<div class="matchup">' + box('away', g.away) + box('home', g.home) + '</div>' +
-    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · SKIPPED':'') + '</span>' +
+    '<div class="scorecard-head"><span>' + esc(g.league||'') + (isSkipped?' · OMITTED':'') + '</span>' +
       '<span class="scorecard-live">' + (statusClass==='live' && g.liveStatus ? esc(g.liveStatus) : '') + '</span>' +
       '<span class="status-pill ' + statusClass + '">' + esc(statusText) + '</span></div>' +
   '</div>';
@@ -1060,7 +1061,7 @@ function renderPicks(){
   const hammerAvailable = hammerGame && !session.hammerUsed;
   if (locked) html += '<div class="banner" style="margin-top:14px;">Picks for Week ' + esc(wk) + ' are locked.' + (existing ? ' Showing what you submitted.' : ' You did not submit picks for this week.') + '</div>';
   else if (hammerMode) html += '<div class="banner" style="margin-top:14px;background:color-mix(in srgb, var(--gold) 18%, var(--bg-elevated));border-color:var(--gold);">⚡ Seau\'s Hammer is ON — all 55 points ride on the hammer game below. You can only use this once all season, and you can\'t win the weekly 1st/2nd/3rd prize on a hammer week.</div>';
-  else html += '<p class="muted" style="margin-top:14px;">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Skip exactly one game. Then set your Monday-night tiebreaker.</p>';
+  else html += '<p class="muted" style="margin-top:14px;">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Omit exactly one game. Then set your Monday-night tiebreaker.</p>';
   if (existing && existing.isInsurance) html += '<div class="banner">This week was auto-filled by Insurance (picks weren\'t submitted in time). These points still count, but this week is not eligible for the weekly prize.</div>';
   if (existing) html += renderPointsSummary(wk, regular);
 
@@ -1093,10 +1094,10 @@ function renderPicks(){
             '<option value="">Value…</option>' +
             [1,2,3,4,5,6,7,8,9,10].filter(v => !usedValues.has(v) || v===pick.value).map(v => '<option value="'+v+'" ' + (pick.value===v?'selected':'') + '>' + v + '</option>').join('') +
           '</select>' +
-          '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.toggleSkip(\'' + g.id + '\')">' + (isSkipped?'Skipped':'Skip') + '</button></div>' +
+          '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.toggleSkip(\'' + g.id + '\')">' + (isSkipped?'Omitted':'Omit') + '</button></div>' +
       '</div></div>';
     } else {
-      const foot = isSkipped ? '<span>Skipped this week</span>' :
+      const foot = isSkipped ? '<span>Omitted this week</span>' :
         (pick.winner ? '<span>' + (pick.value?ptsBadge(pick.value, g.winner, pick.winner):'No value') + '</span><span>' + (g.winner ? gradeBadge(g.winner, pick.winner) : 'Pending') + '</span>' : '<span>No pick submitted</span>');
       html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot);
     }
@@ -1173,8 +1174,8 @@ function renderOtherPlayerPicks(wk, w, pid){
       const pick = (p.gamePicks && p.gamePicks[g.id]) || {};
       const myIsSkipped = mine && mine.omitGameId === g.id;
       const myPick = (mine && mine.gamePicks && mine.gamePicks[g.id]) || {};
-      const theirFoot = isSkipped ? 'Skipped' : (pick.winner ? (g.away && pick.winner==='away'?g.away:(pick.winner==='home'?g.home:'')) + (pick.value?' · '+pick.value+' pts':'') : 'No pick');
-      const myFoot = myIsSkipped ? 'Skipped' : (myPick.winner ? (myPick.winner==='away'?g.away:g.home) + (myPick.value?' · '+myPick.value+' pts':'') : 'No pick');
+      const theirFoot = isSkipped ? 'Omitted' : (pick.winner ? (g.away && pick.winner==='away'?g.away:(pick.winner==='home'?g.home:'')) + (pick.value?' · '+pick.value+' pts':'') : 'No pick');
+      const myFoot = myIsSkipped ? 'Omitted' : (myPick.winner ? (myPick.winner==='away'?g.away:g.home) + (myPick.value?' · '+myPick.value+' pts':'') : 'No pick');
       const foot = '<span>Them: ' + esc(theirFoot) + (pick.winner && g.winner ? gradeBadge(g.winner, pick.winner) : '') + '</span>' +
         '<span>You: ' + esc(myFoot) + (myPick.winner && g.winner ? gradeBadge(g.winner, myPick.winner) : '') + '</span>';
       html += renderScorecard(g, isSkipped ? null : pick.winner, isSkipped, foot, myIsSkipped ? null : myPick.winner, 'Their Pick');
@@ -1688,10 +1689,11 @@ function renderAdmin(){
 
   const players = Object.entries(STATE.players).sort((a,b) => a[1].displayName.localeCompare(b[1].displayName));
   html += '<div class="card"><h3 style="margin-top:0;">Players (' + players.length + ')</h3>' +
-    '<p class="muted" style="margin-top:-6px;">Tap "Make Admin" to let someone else pick each week\'s games alongside you.</p>';
+    '<p class="muted" style="margin-top:-6px;">Tap "Make Admin" to let someone else pick each week\'s games alongside you. "Reset Hammer" clears a player\'s season-long Hammer usage flag — use it if someone\'s Hammer got set by accident, so they can use it again.</p>';
   if (!players.length) html += '<div class="muted">No one has logged in yet.</div>';
   else players.forEach(([pid,p]) => {
-    html += '<div class="row" style="align-items:center;margin-bottom:8px;"><div>' + esc(p.displayName) + (p.isAdmin?' <span class="badge gold">Admin</span>':'') + (p.championNotes?' <span class="badge" title="Champion history">&#127942; ' + esc(p.championNotes) + '</span>':'') + '</div>' +
+    html += '<div class="row" style="align-items:center;margin-bottom:8px;flex-wrap:wrap;"><div>' + esc(p.displayName) + (p.isAdmin?' <span class="badge gold">Admin</span>':'') + (p.hammerUsed?' <span class="badge gold">⚡ Hammer used</span>':'') + (p.championNotes?' <span class="badge" title="Champion history">&#127942; ' + esc(p.championNotes) + '</span>':'') + '</div>' +
+      (p.hammerUsed ? '<button class="btn" style="flex:0 0 auto;" onclick="App.adminResetHammer(\'' + pid + '\')">Reset Hammer</button>' : '') +
       '<button class="btn" style="flex:0 0 auto;" onclick="App.toggleAdmin(\'' + pid + '\')">' + (p.isAdmin ? 'Remove Admin' : 'Make Admin') + '</button></div>';
   });
   html += '</div>';
@@ -1778,7 +1780,7 @@ function renderAdminEditPicks(players){
               '<option value="">Value…</option>' +
               [1,2,3,4,5,6,7,8,9,10].filter(v => !usedValues.has(v) || v===pick.value).map(v => '<option value="'+v+'" ' + (pick.value===v?'selected':'') + '>' + v + '</option>').join('') +
             '</select>' +
-            '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.adminToggleSkip(\'' + g.id + '\')">' + (isSkipped?'Skipped':'Skip') + '</button></div>' +
+            '<button class="btn skip-btn ' + (isSkipped?'active':'') + '" onclick="App.adminToggleSkip(\'' + g.id + '\')">' + (isSkipped?'Omitted':'Omit') + '</button></div>' +
         '</div></div>';
       });
     }
@@ -2152,11 +2154,25 @@ const App = {
     }
     render();
   },
-  resetPicks(){
+  async resetPicks(){
     if (!confirm('Clear every pick you\'ve made for this week and start over? This can\'t be undone.')) return;
-    draft.gamePicks = {};
-    draft.omitGameId = null;
-    draft.tiebreaker = { winner: null, total: '' };
+    const wk = picksViewWeek != null ? picksViewWeek : STATE.meta.currentWeek;
+    // Reset Picks used to only clear the in-memory draft — if picks had
+    // already been submitted (and saved to the DB), that saved row was never
+    // touched, so a reload brought the "reset" picks (and the Hammer flag)
+    // right back. Delete the actual saved row here too when one exists.
+    const existing = STATE.picks[pickDocId(wk, session.playerId)];
+    if (existing){
+      try {
+        await sb.from('picks').delete().eq('week_number', wk).eq('player_id', session.playerId);
+        if (existing.isHammer){
+          await sb.from('profiles').update({ hammer_used: false }).eq('id', session.playerId);
+          session.hammerUsed = false;
+        }
+        delete STATE.picks[pickDocId(wk, session.playerId)];
+      } catch(e){ showError(e); return; }
+    }
+    draft = { week: wk, gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
     hammerMode = false;
     render();
   },
@@ -2191,11 +2207,12 @@ const App = {
       if (!hg){ alert('No hammer game is set for this week.'); return; }
       const p = draft.gamePicks[hg.id];
       if (!p || !p.winner){ alert('Pick a winner for the hammer game.'); return; }
-      if (tb && (!draft.tiebreaker || !draft.tiebreaker.winner || draft.tiebreaker.total == null || isNaN(draft.tiebreaker.total))){ alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return; }
+      // No tiebreaker requirement on a hammer week — all 55 points already ride
+      // on the hammer game, so the Monday-night tiebreaker is optional here.
     } else {
-      if (!draft.omitGameId){ alert('Pick one game to skip (you play 10 of the 11).'); return; }
+      if (!draft.omitGameId){ alert('Pick one game to omit (you play 10 of the 11).'); return; }
       const toScore = regular.filter(g => g.id !== draft.omitGameId);
-      for (const g of toScore){ const p = draft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: pick a winner and a confidence value for all games except your one skip.'); return; } }
+      for (const g of toScore){ const p = draft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: pick a winner and a confidence value for all games except your one omit.'); return; } }
       const usedVals = toScore.map(g => draft.gamePicks[g.id].value).sort((a,b)=>a-b);
       if (JSON.stringify(usedVals) !== JSON.stringify([1,2,3,4,5,6,7,8,9,10])){ alert('Each confidence value 1–10 must be used exactly once.'); return; }
       if (tb && (!draft.tiebreaker || !draft.tiebreaker.winner || draft.tiebreaker.total == null || isNaN(draft.tiebreaker.total))){ alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return; }
@@ -2352,6 +2369,24 @@ const App = {
     try { await sb.from('profiles').update({ is_admin: !p.isAdmin }).eq('id', pid); await loadProfiles(); render(); }
     catch(e){ showError(e); }
   },
+  async adminResetHammer(pid){
+    const p = STATE.players[pid];
+    if (!p) return;
+    // This only clears the season-long "has this player used their Hammer"
+    // flag on their profile — it does not touch any week's submitted picks.
+    // If their Hammer was actually set on a specific week's picks by mistake,
+    // also fix that week via "Edit a player's picks" below and turn Hammer
+    // mode off there, or those picks will just flip this flag back to true
+    // next time they're saved.
+    if (!confirm('Reset ' + p.displayName + '\'s Hammer so they can use it again this season? This only clears the "already used" flag — it won\'t change any picks already submitted for a specific week.')) return;
+    try {
+      await sb.from('profiles').update({ hammer_used: false }).eq('id', pid);
+      if (pid === session.playerId) session.hammerUsed = false;
+      await loadProfiles();
+      render();
+      showToast('Hammer reset for ' + p.displayName + '.');
+    } catch(e){ showError(e); }
+  },
   toggleSurvivorDetail(pointValue){ survivorExpanded[pointValue] = !survivorExpanded[pointValue]; render(); },
   setTextSize(size){ a11y.textSize = size; saveA11ySettings(); render(); },
   toggleA11y(key){ a11y[key] = !a11y[key]; saveA11ySettings(); render(); },
@@ -2474,13 +2509,14 @@ const App = {
       const p = adminEditDraft.gamePicks[hg.id];
       if (!p || !p.winner){ alert('Pick a winner for the hammer game.'); return; }
     } else {
-      if (!adminEditDraft.omitGameId){ alert('Pick one game to skip (10 of 11 are played).'); return; }
+      if (!adminEditDraft.omitGameId){ alert('Pick one game to omit (10 of 11 are played).'); return; }
       const toScore = regular.filter(g => g.id !== adminEditDraft.omitGameId);
-      for (const g of toScore){ const p = adminEditDraft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: a winner and a confidence value for all games except the one skip.'); return; } }
+      for (const g of toScore){ const p = adminEditDraft.gamePicks[g.id]; if (!p || !p.winner || !p.value){ alert('Finish every game: a winner and a confidence value for all games except the one omit.'); return; } }
       const usedVals = toScore.map(g => adminEditDraft.gamePicks[g.id].value).sort((a,b)=>a-b);
       if (JSON.stringify(usedVals) !== JSON.stringify([1,2,3,4,5,6,7,8,9,10])){ alert('Each confidence value 1–10 must be used exactly once.'); return; }
     }
-    if (tb && (!adminEditDraft.tiebreaker || !adminEditDraft.tiebreaker.winner || adminEditDraft.tiebreaker.total == null || adminEditDraft.tiebreaker.total === '' || isNaN(adminEditDraft.tiebreaker.total))){
+    // No tiebreaker requirement on a hammer week — see player-facing submitPicks.
+    if (!adminEditHammerMode && tb && (!adminEditDraft.tiebreaker || !adminEditDraft.tiebreaker.winner || adminEditDraft.tiebreaker.total == null || adminEditDraft.tiebreaker.total === '' || isNaN(adminEditDraft.tiebreaker.total))){
       alert('Complete the Monday-night tiebreaker: pick a winner and a predicted total score.'); return;
     }
     const displayName = STATE.players[adminEditPlayerId] ? STATE.players[adminEditPlayerId].displayName : '';
