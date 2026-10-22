@@ -2023,6 +2023,32 @@ const App = {
     render();
   },
 
+  async findDuplicateProfile(displayName, playerClient){
+    try {
+      const client = playerClient || sb;
+      const { data: profiles } = await client.from('profiles').select('id,display_name');
+      if (!profiles || !profiles.length) return null;
+      const norm = s => (s||'').trim().toLowerCase().replace(/\s+/g,' ');
+      const target = norm(displayName);
+      const targetWords = target.split(' ');
+      let best = null;
+      profiles.forEach(p => {
+        const name = norm(p.display_name);
+        if (!name) return;
+        let score;
+        if (name === target) score = 100;
+        else {
+          const words = name.split(' ');
+          let common = 0;
+          targetWords.forEach(w => { if (words.includes(w)) common++; });
+          score = (common / Math.max(targetWords.length, words.length)) * 80;
+          if (words[words.length-1] === targetWords[targetWords.length-1]) score += 15;
+        }
+        if (score >= 55 && (!best || score > best.score)) best = { id: p.id, displayName: p.display_name, score };
+      });
+      return best;
+    } catch(e){ return null; /* best-effort — never block signup on a failed check */ }
+  },
   async offerLegacyClaim(playerId, displayName){
     try {
       const { data: legacyPlayers } = await sb.from('legacy_players').select('*');
@@ -2114,7 +2140,13 @@ const App = {
     if (pass.length < 6){ alert('Password must be at least 6 characters.'); return; }
     if (pass !== pass2){ alert('Passwords don\'t match.'); return; }
     const displayName = first + ' ' + last;
-    btn.disabled = true; btn.textContent = 'Creating…';
+    btn.disabled = true; btn.textContent = 'Checking…';
+    const dup = await App.findDuplicateProfile(displayName);
+    if (dup){
+      const proceed = confirm('An account for "' + dup.displayName + '" already exists.\n\nIs this you?\n\nTap Cancel to stop — log in instead (use "Forgot password?" if needed), or ask the commissioner to help merge accounts.\n\nTap OK only if this is a different person with a similar name, to continue creating a new account.');
+      if (!proceed){ btn.disabled = false; btn.textContent = 'Create Account'; return; }
+    }
+    btn.textContent = 'Creating…';
     try {
       const { data, error } = await sb.auth.signUp({ email, password: pass });
       if (error) throw error;
@@ -2450,7 +2482,13 @@ const App = {
     if (!email || !email.includes('@')){ alert('Enter a valid email address.'); return; }
     if (!pass || pass.length < 6){ alert('Set a temporary password of at least 6 characters.'); return; }
     const displayName = first + ' ' + last;
-    btn.disabled = true; btn.textContent = 'Creating…';
+    btn.disabled = true; btn.textContent = 'Checking…';
+    const dup = await App.findDuplicateProfile(displayName);
+    if (dup){
+      const proceed = confirm('An account for "' + dup.displayName + '" already exists.\n\nIs this the same person? If so, cancel and use "Find my past picks" from their existing Profile instead of creating a second account.\n\nTap OK only if this is a different person with a similar name.');
+      if (!proceed){ btn.disabled = false; btn.textContent = 'Create Account'; return; }
+    }
+    btn.textContent = 'Creating…';
     try {
       const { data, error } = await sbSignupClient.auth.signUp({ email, password: pass });
       if (error) throw error;
