@@ -173,8 +173,9 @@ module.exports = async (req, res) => {
     }
 
     // Insurance: for any locked week where a registered player never submitted picks,
-    // auto-fill using the current leader's exact team picks with confidence values
-    // reversed (leader's 10 becomes 1, etc.). Idempotent — only inserts where no
+    // auto-fill using the OPPOSITE team from the current leader's picks, with the
+    // confidence value inverted (leader's 10 on Team A becomes a 1 on Team A's
+    // opponent, leader's 7 becomes a 4, etc). Idempotent — only inserts where no
     // pick row exists yet, so safe to run on every sync.
     const insuranceResults = await applyInsurance(sb);
     results.insuranceApplied = insuranceResults.length;
@@ -241,7 +242,10 @@ async function applyInsurance(sb) {
 
     const reversedGamePicks = {};
     for (const [gid, pick] of Object.entries(leaderPick.game_picks || {})) {
-      reversedGamePicks[gid] = { winner: pick.winner, value: pick.value != null ? (11 - pick.value) : null };
+      // Insurance mirrors the leader's confidence value (11 - v) AND flips to the
+      // opposite team: leader's 7 on the Bears becomes a 4 on the Bears' opponent.
+      const flippedWinner = pick.winner === 'away' ? 'home' : (pick.winner === 'home' ? 'away' : pick.winner);
+      reversedGamePicks[gid] = { winner: flippedWinner, value: pick.value != null ? (11 - pick.value) : null };
     }
 
     for (const pr of missing) {
