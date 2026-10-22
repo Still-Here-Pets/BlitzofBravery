@@ -159,7 +159,14 @@
     color: #FFD60A;
     text-shadow: 0 0 5px rgba(255,214,10,0.9), 0 0 12px rgba(255,214,10,0.6), 0 0 24px rgba(255,214,10,0.3);
   }
-  .tabs { display: flex; background: var(--bg-elevated); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  .sticky-nav { position: sticky; top: 0; z-index: 5; }
+  .whos-picking { display: flex; align-items: center; justify-content: center; gap: 7px; background: #1C1204; border-bottom: 2px solid #6B4A12; padding: 7px 14px; cursor: pointer; }
+  .whos-picking:active { background: #2A1B08; }
+  .whos-picking .wp-avatar { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(180deg,#FFEC9A,#C8860A); color: #3A2600; font-family: "Bebas Neue", sans-serif; font-size: 12px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .whos-picking .wp-label { font-family: "Work Sans", sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,214,10,0.55); }
+  .whos-picking .wp-name { font-family: "Work Sans", sans-serif; font-size: 14px; font-weight: 700; color: #FFD60A; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .whos-picking .wp-chevron { color: rgba(255,214,10,0.55); font-size: 11px; }
+  .tabs { display: flex; background: var(--bg-elevated); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .tab { flex: 1; text-align: center; padding: 13px 6px; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; min-width: 70px; }
   .tab.active { color: var(--ink); border-bottom-color: var(--gold); }
   .content { padding: 18px 16px 8px; }
@@ -707,6 +714,7 @@ function render(){
   if (view === 'login') { app.innerHTML = renderLogin(); restoreFocus(); return; }
   if (view === 'resetPassword') { app.innerHTML = renderResetPassword(); restoreFocus(); return; }
   const topbar = renderTopbar();
+  const whosPicking = renderWhosPicking();
   const tabs = renderTabs();
   let body = '';
   if (view === 'picks') body = renderPicks();
@@ -716,7 +724,7 @@ function render(){
   else if (view === 'profile') body = renderProfile();
   else if (view === 'board') body = renderBoard();
   else if (view === 'hof') body = renderHallOfFame();
-  app.innerHTML = topbar + tabs + '<div class="content">' + body + '</div>' +
+  app.innerHTML = topbar + '<div class="sticky-nav">' + whosPicking + tabs + '</div>' + '<div class="content">' + body + '</div>' +
     '<div class="footer-note">' + esc(STATE.meta.seasonName || 'The Blitz of Bravery') + '</div>' +
     renderClaimModal();
   restoreFocus();
@@ -750,6 +758,16 @@ function renderTopbar(){
     '</svg>' +
     '<div class="tagline">Honor Rewards The Brave Above All Else</div>' +
     '<div class="led-plate"><div class="led-label">WEEK</div><div class="led-digits">' + (STATE.meta.currentWeek < 10 ? '0' : '') + wk + '</div></div>' +
+  '</div>';
+}
+function renderWhosPicking(){
+  const name = session.displayName || 'Unknown';
+  const initial = name.trim().charAt(0).toUpperCase() || '?';
+  return '<div class="whos-picking" onclick="App.setView(\'profile\')" title="Tap to switch player or log out">' +
+    '<div class="wp-avatar">' + esc(initial) + '</div>' +
+    '<span class="wp-label">Picking as</span>' +
+    '<span class="wp-name">' + esc(name) + '</span>' +
+    '<span class="wp-chevron">&#9662;</span>' +
   '</div>';
 }
 function renderTabs(){
@@ -806,7 +824,13 @@ function renderResetPassword(){
 
 function renderProfile(){
   const me = STATE.players[session.playerId] || {};
-  let html = '<div class="card">' +
+  const initial = (session.displayName||'').trim().charAt(0).toUpperCase() || '?';
+  let html = '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
+    '<div class="wp-avatar" style="width:40px;height:40px;font-size:18px;">' + esc(initial) + '</div>' +
+    '<div><div class="muted" style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;">Logged in as</div>' +
+    '<div style="font-size:18px;font-weight:700;">' + esc(session.displayName) + '</div></div>' +
+  '</div>';
+  html += '<div class="card">' +
     '<h3 style="margin-top:0;">Your info</h3>' +
     '<label>Display name</label><input id="pf-name" value="' + esc(session.displayName) + '">' +
     '<button class="btn btn-primary" style="margin-top:10px;" onclick="App.saveDisplayName()">Save name</button>' +
