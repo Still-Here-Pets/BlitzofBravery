@@ -762,9 +762,7 @@ function renderTopbar(){
 }
 function renderWhosPicking(){
   const name = session.displayName || 'Unknown';
-  const initial = name.trim().charAt(0).toUpperCase() || '?';
   return '<div class="whos-picking" onclick="App.setView(\'profile\')" title="Tap to switch player or log out">' +
-    '<div class="wp-avatar">' + esc(initial) + '</div>' +
     '<span class="wp-label">Picking as</span>' +
     '<span class="wp-name">' + esc(name) + '</span>' +
     '<span class="wp-chevron">&#9662;</span>' +
