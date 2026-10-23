@@ -767,7 +767,7 @@ function renderTopbar(){
       '</pattern></defs>' +
       '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFill)">Blitz of Bravery</text>' +
     '</svg>' +
-    '<div class="tagline">Honor Rewards The Brave Above All Else</div>' +
+    '<div class="tagline">Honor rewards the brave, glory rewards the victorious, common sense rewards neither, and the foolish earn stories</div>' +
     '<div class="led-plate"><div class="led-label">WEEK</div><div class="led-digits">' + (STATE.meta.currentWeek < 10 ? '0' : '') + wk + '</div></div>' +
   '</div>';
 }
@@ -802,7 +802,7 @@ function renderLogin(){
       '</pattern></defs>' +
       '<text x="410" y="100" text-anchor="middle" class="diamond-letters" font-size="92" fill="url(#diamondFillLogin)">' + esc(STATE.meta.seasonName || 'Blitz of Bravery') + '</text>' +
     '</svg>' +
-    '<div class="tagline">Honor Rewards The Brave Above All Else</div>' +
+    '<div class="tagline">Honor rewards the brave, glory rewards the victorious, common sense rewards neither, and the foolish earn stories</div>' +
     '</div>' +
     '<div class="content" style="padding-top:22px;">' +
     '<div class="authtabs">' +
@@ -1569,11 +1569,14 @@ function renderStandings(){
   else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly');
   if (rows.length && !weekIsComplete(w)) html += '<p class="muted" style="margin-top:-6px;">This week isn\'t final yet, so prize money isn\'t awarded here until every game has a result.</p>';
 
-  html += '<hr class="divider"><div class="section-head"><h3 style="margin:0;">Season Standings</h3><button class="find-me-btn" onclick="App.findMe(\'season\')">📍 Find Me</button></div>';
+  const seasonWeeks = Object.keys(STATE.weeks).map(Number);
+  const seasonComplete = seasonWeeks.length > 0 && seasonWeeks.every(n => weekIsComplete(getWeek(n)));
+  html += '<hr class="divider"><div class="section-head"><h3 style="margin:0;">Season Standings' + (seasonComplete ? '' : ' <span class="badge" style="font-size:11px;vertical-align:middle;">In Progress</span>') + '</h3><button class="find-me-btn" onclick="App.findMe(\'season\')">📍 Find Me</button></div>';
   let season = players.map(pid => ({ pid, name: STATE.players[pid].displayName, total: seasonTotal(pid) }));
   season.sort((a,b) => b.total - a.total);
   const seasonPrizes = (STATE.meta.season1st!=null || STATE.meta.season2nd!=null || STATE.meta.season3rd!=null) ? [STATE.meta.season1st, STATE.meta.season2nd, STATE.meta.season3rd] : null;
   html += rankedTable(season, 'total', seasonPrizes, 'season');
+  if (seasonPrizes && !seasonComplete) html += '<p class="muted" style="margin-top:-6px;">The season isn\'t over yet — this is where things stand right now, not a final payout. Standings (and who\'s in the money) can still change.</p>';
 
   html += '<hr class="divider"><div class="section-head"><h3 style="margin:0;">Total Money Leaders</h3><button class="find-me-btn" onclick="App.findMe(\'money\')">📍 Find Me</button></div>';
   const moneyTotals = computeMoneyTotals();
