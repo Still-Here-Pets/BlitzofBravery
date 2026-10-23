@@ -1451,6 +1451,12 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
   html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
   return html;
 }
+// A week only counts toward prize money once every one of its games has a decided
+// winner. Otherwise everyone's score is still 0/tied and whoever a plain sort happens
+// to put first/second/third would get credited money for a week that hasn't been played.
+function weekIsComplete(w){
+  return !!(w && w.games && w.games.length && w.games.every(g => g.winner != null));
+}
 function computeMoneyTotals(){
   const players = Object.keys(STATE.players);
   const totals = {}; players.forEach(pid => totals[pid] = 0);
@@ -1458,6 +1464,7 @@ function computeMoneyTotals(){
   const prizeAmounts = [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd];
   Object.keys(STATE.weeks).map(Number).forEach(n => {
     const w = getWeek(n);
+    if (!weekIsComplete(w)) return;
     const tb = w ? w.games.find(g => g.isTiebreaker) : null;
     const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
     let rows = players.map(pid => {
@@ -1493,9 +1500,10 @@ function renderStandings(){
     return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
   }).filter(r => r.submitted);
   rows.sort((a,b) => b.score - a.score || a.diff - b.diff);
-  const weeklyPrizes = (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
+  const weeklyPrizes = (weekIsComplete(w) && (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null)) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
   else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly');
+  if (rows.length && !weekIsComplete(w)) html += '<p class="muted" style="margin-top:-6px;">This week isn\'t final yet, so prize money isn\'t awarded here until every game has a result.</p>';
 
   html += '<hr class="divider"><div class="section-head"><h3 style="margin:0;">Season Standings</h3><button class="find-me-btn" onclick="App.findMe(\'season\')">📍 Find Me</button></div>';
   let season = players.map(pid => ({ pid, name: STATE.players[pid].displayName, total: seasonTotal(pid) }));
