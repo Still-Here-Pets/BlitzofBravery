@@ -1604,6 +1604,10 @@ function survivorStatus(playerId, pointValue){
   for (const n of weeks){
     const w = getWeek(n);
     if (!w || !w.games || !w.games.length) continue;
+    // A week that hasn't finished yet (the current, still-open week) can't eliminate
+    // anyone just because they haven't submitted picks for it yet — they still have
+    // time to. Only a week whose games are all decided can count a missing pick as a loss.
+    if (!weekIsComplete(w)) return { alive:true, pendingWeek:n };
     const p = STATE.picks[pickDocId(n, playerId)];
     if (!p){ return { alive:false, eliminatedWeek:n, reason:'no picks submitted' }; }
     const entry = p.isHammer
