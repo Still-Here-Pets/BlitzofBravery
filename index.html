@@ -1434,9 +1434,18 @@ function teamBtn(g, side, selected, disabled, isTb, isHammer, adminMode){
 function kickoffLabel(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; return d.toLocaleString(undefined, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}); }
 function toLocalInputValue(iso){ if (!iso) return ''; const d = new Date(iso); if (isNaN(d.getTime())) return ''; const pad = n => String(n).padStart(2,'0'); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }
 
+// The sole player still alive in a survivor pool (10-point or 1-point) has won it.
+// Returns null while 0 or 2+ players remain (not settled, or edge case with no survivors).
+function survivorWinnerPid(pointValue){
+  const alive = Object.keys(STATE.players).filter(pid => survivorStatus(pid, pointValue).alive);
+  return alive.length === 1 ? alive[0] : null;
+}
 function champBadge(pid){
   const notes = STATE.players[pid] && STATE.players[pid].championNotes;
-  return notes ? ' <span class="badge" title="Champion history">&#127942; ' + esc(notes) + '</span>' : '';
+  let html = notes ? ' <span class="badge" title="Champion history">&#127942; ' + esc(notes) + '</span>' : '';
+  if (pid === survivorWinnerPid(10)) html += ' <span class="badge gold" title="Won this season\'s 10-Point Survivor pool">&#127942; 10-pt Survivor</span>';
+  if (pid === survivorWinnerPid(1)) html += ' <span class="badge gold" title="Won this season\'s 1-Point Survivor pool">&#127942; 1-pt Survivor</span>';
+  return html;
 }
 function rankedTable(rows, valueKey, prizeAmounts, sectionId){
   const showPrize = !!prizeAmounts;
