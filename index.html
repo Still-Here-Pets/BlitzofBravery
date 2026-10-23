@@ -567,6 +567,17 @@ function tiebreakerDiff(weekNum, playerId){
   if (!tb || tb.awayScore == null || tb.homeScore == null) return Infinity;
   return Math.abs((tb.awayScore + tb.homeScore) - p.tiebreaker.total);
 }
+// Second-level tiebreak: if two players guess the exact same combined score, the one
+// who also picked the actual winning team wins the tie (e.g. both guess 44, but one put
+// it on the team that won — that one is closer to "right" even though the total matches
+// equally). Returns 1 (correctly picked the winner), 0 (picked wrong or no winner yet).
+function tiebreakerWinnerCorrect(weekNum, playerId){
+  const w = getWeek(weekNum); const p = STATE.picks[pickDocId(weekNum, playerId)];
+  if (!w || !p || !p.tiebreaker) return 0;
+  const tb = w.games.find(g => g.isTiebreaker);
+  if (!tb || !tb.winner) return 0;
+  return p.tiebreaker.winner === tb.winner ? 1 : 0;
+}
 function seasonTotal(playerId){
   return Object.keys(STATE.weeks).map(Number).reduce((sum,n) => sum + weeklyScore(n, playerId), 0);
 }
@@ -1431,7 +1442,8 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
   const showPrize = !!prizeAmounts;
   let html = '<div class="scroll-wrap" id="' + sectionId + '-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
   const lead = rows.length ? rows[0][valueKey] : 0;
-  let prizeRank = 0;
+  const eligibleRows = showPrize ? rows.filter(r => r.eligible !== false) : [];
+  const { shares, splitPids } = showPrize ? computeTieSplitShares(eligibleRows, valueKey, prizeAmounts) : { shares:{}, splitPids:{} };
   rows.forEach((r,i) => {
     const back = lead - r[valueKey];
     let prizeCell = '';
@@ -1439,9 +1451,8 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
       if (r.eligible === false){
         prizeCell = '<td class="num muted">' + esc(r.tag||'—') + '</td>';
       } else {
-        const amt = prizeAmounts[prizeRank];
-        prizeCell = '<td class="num">' + (amt!=null ? ('$' + amt) : '—') + '</td>';
-        prizeRank++;
+        const amt = shares[r.pid];
+        prizeCell = '<td class="num">' + (amt!=null ? ('$' + (Number.isInteger(amt)?amt:amt.toFixed(2))) : '—') + (splitPids[r.pid] ? ' <span class="muted" style="font-size:11px;">(split)</span>' : '') + '</td>';
       }
     }
     const isMe = r.pid === session.playerId;
@@ -1457,28 +1468,72 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
 function weekIsComplete(w){
   return !!(w && w.games && w.games.length && w.games.every(g => g.winner != null));
 }
+// Splits prize money evenly across a run of genuinely tied rows (same value, same
+// tiebreaker distance) instead of letting sort order silently hand the whole amount
+// to whichever tied player happened to land first. A tied group consumes as many
+// prize slots as it has members, and shares the combined dollar amount of those slots.
+// Ties the app can't resolve on its own (e.g. a manual coin-flip) aren't something this
+// can know about — it always falls back to an even split.
+function computeTieSplitShares(eligibleRows, valueKey, prizeAmounts){
+  const shares = {}; const splitPids = {};
+  if (!prizeAmounts || !eligibleRows.length) return { shares, splitPids };
+  let i = 0, prizeRank = 0;
+  while (i < eligibleRows.length && prizeRank < prizeAmounts.length){
+    const r0 = eligibleRows[i];
+    let j = i + 1;
+    while (j < eligibleRows.length && eligibleRows[j][valueKey] === r0[valueKey] && (eligibleRows[j].diff ?? null) === (r0.diff ?? null) && (eligibleRows[j].wcorrect ?? null) === (r0.wcorrect ?? null)) j++;
+    const groupSize = j - i;
+    let sum = 0;
+    for (let k = 0; k < groupSize && (prizeRank + k) < prizeAmounts.length; k++){
+      const amt = prizeAmounts[prizeRank + k];
+      if (amt != null) sum += Number(amt);
+    }
+    if (sum > 0){
+      const share = sum / groupSize;
+      for (let k = i; k < j; k++){
+        shares[eligibleRows[k].pid] = share;
+        if (groupSize > 1) splitPids[eligibleRows[k].pid] = true;
+      }
+    }
+    prizeRank += groupSize;
+    i = j;
+  }
+  return { shares, splitPids };
+}
+// A week only counts toward prize money once every one of its games has a decided
+// winner. Otherwise everyone's score is still 0/tied and whoever a plain sort happens
+// to put first/second/third would get credited money for a week that hasn't been played.
+function weekIsComplete(w){
+  return !!(w && w.games && w.games.length && w.games.every(g => g.winner != null));
+}
 function computeMoneyTotals(){
   const players = Object.keys(STATE.players);
   const totals = {}; players.forEach(pid => totals[pid] = 0);
-  if (STATE.meta.weekly1st == null && STATE.meta.weekly2nd == null && STATE.meta.weekly3rd == null) return totals;
-  const prizeAmounts = [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd];
-  Object.keys(STATE.weeks).map(Number).forEach(n => {
-    const w = getWeek(n);
-    if (!weekIsComplete(w)) return;
-    const tb = w ? w.games.find(g => g.isTiebreaker) : null;
-    const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
-    let rows = players.map(pid => {
-      const pick = STATE.picks[pickDocId(n,pid)];
-      return { pid, score: weeklyScore(n, pid), diff: tbFinal ? tiebreakerDiff(n, pid) : Infinity, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)) };
-    }).filter(r => r.submitted);
-    rows.sort((a,b) => b.score - a.score || a.diff - b.diff);
-    let prizeRank = 0;
-    rows.forEach(r => {
-      if (!r.eligible) return;
-      const amt = prizeAmounts[prizeRank];
-      if (amt != null) totals[r.pid] = (totals[r.pid]||0) + amt;
-      prizeRank++;
+  const weeklyOn = STATE.meta.weekly1st != null || STATE.meta.weekly2nd != null || STATE.meta.weekly3rd != null;
+  if (weeklyOn){
+    const prizeAmounts = [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd];
+    Object.keys(STATE.weeks).map(Number).forEach(n => {
+      const w = getWeek(n);
+      if (!weekIsComplete(w)) return;
+      const tb = w.games.find(g => g.isTiebreaker);
+      const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
+      let rows = players.map(pid => {
+        const pick = STATE.picks[pickDocId(n,pid)];
+        return { pid, score: weeklyScore(n, pid), diff: tbFinal ? tiebreakerDiff(n, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(n, pid) : 0, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)) };
+      }).filter(r => r.submitted);
+      rows.sort((a,b) => b.score - a.score || a.diff - b.diff || b.wcorrect - a.wcorrect);
+      const eligible = rows.filter(r => r.eligible);
+      const { shares } = computeTieSplitShares(eligible, 'score', prizeAmounts);
+      Object.entries(shares).forEach(([pid, amt]) => { totals[pid] = (totals[pid]||0) + amt; });
     });
+  }
+  // Survivor pools: once exactly one player is still alive, they've won — add that
+  // pool's prize to their total. (If everyone's eliminated with none left alive, or
+  // more than one remains, the pool isn't settled yet and nothing is awarded.)
+  [[10, STATE.meta.survivor10pt], [1, STATE.meta.survivor1pt]].forEach(([pointValue, prize]) => {
+    if (prize == null) return;
+    const alive = players.filter(pid => survivorStatus(pid, pointValue).alive);
+    if (alive.length === 1) totals[alive[0]] = (totals[alive[0]]||0) + Number(prize);
   });
   return totals;
 }
@@ -1497,9 +1552,9 @@ function renderStandings(){
   let rows = players.map(pid => {
     const pick = STATE.picks[pickDocId(wk,pid)];
     const tag = pick && pick.isHammer ? '(hammer)' : (pick && pick.isInsurance ? '(insurance)' : '');
-    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
+    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(wk, pid) : 0, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
   }).filter(r => r.submitted);
-  rows.sort((a,b) => b.score - a.score || a.diff - b.diff);
+  rows.sort((a,b) => b.score - a.score || a.diff - b.diff || b.wcorrect - a.wcorrect);
   const weeklyPrizes = (weekIsComplete(w) && (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null)) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
   else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly');
@@ -1514,17 +1569,18 @@ function renderStandings(){
   html += '<hr class="divider"><div class="section-head"><h3 style="margin:0;">Total Money Leaders</h3><button class="find-me-btn" onclick="App.findMe(\'money\')">📍 Find Me</button></div>';
   const moneyTotals = computeMoneyTotals();
   const anyMoney = Object.values(moneyTotals).some(v => v > 0);
-  if (STATE.meta.weekly1st == null && STATE.meta.weekly2nd == null && STATE.meta.weekly3rd == null){
-    html += '<div class="empty">Set weekly payout amounts in Admin to track winnings.</div>';
+  const anyPayoutConfigured = [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd, STATE.meta.survivor10pt, STATE.meta.survivor1pt].some(v => v != null);
+  if (!anyPayoutConfigured){
+    html += '<div class="empty">Set payout amounts in Admin to track winnings.</div>';
   } else if (!anyMoney){
-    html += '<div class="empty">No weekly prizes have been won yet.</div>';
+    html += '<div class="empty">No prizes have been won yet.</div>';
   } else {
     let moneyRows = players.map(pid => ({ pid, name: STATE.players[pid].displayName, won: moneyTotals[pid]||0 })).filter(r => r.won > 0);
     moneyRows.sort((a,b) => b.won - a.won);
     html += '<div class="scroll-wrap" id="money-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Won</th></tr></thead><tbody>';
     moneyRows.forEach((r,i) => {
       const isMe = r.pid === session.playerId;
-      html += '<tr' + (isMe ? ' class="me-row" id="money-body-me"' : '') + '><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + '</td><td class="num">$' + r.won + '</td></tr>';
+      html += '<tr' + (isMe ? ' class="me-row" id="money-body-me"' : '') + '><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + '</td><td class="num">$' + (Number.isInteger(r.won)?r.won:r.won.toFixed(2)) + '</td></tr>';
     });
     html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
   }
@@ -1560,6 +1616,13 @@ function renderSurvivorBoard(pointValue, title, playerIds){
   const prize = pointValue === 10 ? STATE.meta.survivor10pt : STATE.meta.survivor1pt;
   let html = '<h3 style="margin:0 0 4px;">' + esc(title) + (prize!=null ? ' <span class="badge gold">$' + prize + '</span>' : '') + '</h3>' +
     '<p class="muted" style="margin-bottom:10px;">Stay alive as long as your Week-by-week ' + pointValue + '-point pick keeps winning. One loss and you\'re out for the season.' + (prize!=null ? ' Whoever\'s still standing at the end wins $' + prize + '.' : '') + '</p>';
+  if (aliveCount === 1){
+    const winner = results.find(r => r.status.alive);
+    const winnerName = (STATE.players[winner.pid]||{}).displayName || 'Unknown';
+    html += '<div class="banner" style="background:color-mix(in srgb, var(--gold) 18%, var(--bg-elevated));border-color:var(--gold);">&#127942; ' + esc(winnerName) + ' is the last one standing' + (prize!=null ? ' — wins $' + prize : '') + '.</div>';
+  } else if (aliveCount === 0 && results.length){
+    html += '<div class="banner">Everyone has been eliminated from this pool — no one is left to win it.</div>';
+  }
   const me = session.playerId ? survivorStatus(session.playerId, pointValue) : null;
   if (!me){
     html += '<div class="empty">Log in to see your status.</div>';
