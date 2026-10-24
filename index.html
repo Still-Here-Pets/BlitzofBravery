@@ -1458,14 +1458,14 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
     let prizeCell = '';
     if (showPrize){
       if (r.eligible === false){
-        prizeCell = '<td class="num muted">' + esc(r.tag||'—') + '</td>';
+        prizeCell = '<td class="num muted">Not eligible</td>';
       } else {
         const amt = shares[r.pid];
         prizeCell = '<td class="num">' + (amt!=null ? ('$' + (Number.isInteger(amt)?amt:amt.toFixed(2))) : '—') + (splitPids[r.pid] ? ' <span class="muted" style="font-size:11px;">(split)</span>' : '') + '</td>';
       }
     }
     const isMe = r.pid === session.playerId;
-    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag && r.eligible!==false ? ' <span class="muted">' + esc(r.tag) + '</span>' : '') + '</td>' +
+    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
       '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
