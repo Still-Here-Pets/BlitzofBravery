@@ -518,6 +518,7 @@ let adminEditPlayerId = null;
 let adminEditWeek = null;
 let adminEditDraft = null;
 let adminEditHammerMode = false;
+let adminEditHammerGameId = null;
 let adminEditExisting = null;
 let hofEditingId = null; // null = not editing, 'new' = new entry form, or an existing row's id
 let survivorExpanded = {}; // { [pointValue]: true } once a user taps "see who's still in"
@@ -1867,14 +1868,20 @@ function renderAdminEditPicks(players){
     if (usedElsewhere) html += '<p class="muted">⚠️ ' + esc(pName) + ' has already used their Hammer this season on another week.</p>';
     html += '<button class="btn ' + (adminEditHammerMode?'btn-primary':'') + '" style="margin-bottom:10px;" onclick="App.adminToggleHammerMode()">' + (adminEditHammerMode ? '⚡ Hammer mode ON for this edit — tap to go back to normal picks' : '⚡ Set this as a Hammer week for this player') + '</button>';
 
-    if (adminEditHammerMode && hammerGame){
-      const pick = adminEditDraft.gamePicks[hammerGame.id] || {};
-      html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hammerGame.league||'') + ' · HAMMER GAME</span><span>' + kickoffSpread(hammerGame) + '</span></div>' +
-        '<div class="perf"></div><div class="game-body">' +
-        '<div class="pick-buttons">' + teamBtn(hammerGame,'away', pick.winner==='away', false, false, true, true) + teamBtn(hammerGame,'home', pick.winner==='home', false, false, true, true) + '</div>' +
-        '<div class="muted">All 55 points go on this pick.</div></div></div>';
-    } else if (adminEditHammerMode && !hammerGame){
-      html += '<div class="empty">No Hammer game is set for this week — set one in the Week Games section above first.</div>';
+    if (adminEditHammerMode){
+      const hg = hammerGame || (adminEditHammerGameId ? regular.find(g => g.id === adminEditHammerGameId) : null);
+      if (!hg){
+        html += '<label>Hammer Game</label><select onchange="App.adminSetHammerGameChoice(this.value)">' +
+          '<option value="">Choose which game is the Hammer for ' + esc(pName) + ' this week…</option>' +
+          regular.map(g => '<option value="' + g.id + '" ' + (adminEditHammerGameId===g.id?'selected':'') + '>' + esc(g.away) + ' @ ' + esc(g.home) + '</option>').join('') +
+          '</select><p class="muted" style="margin-top:4px;">This week doesn\'t have an official Hammer game set yet. Picking one here also sets it as the week\'s Hammer game.</p>';
+      } else {
+        const pick = adminEditDraft.gamePicks[hg.id] || {};
+        html += '<div class="game-row tiebreaker"><div class="game-meta"><span>' + esc(hg.league||'') + ' · HAMMER GAME</span><span>' + kickoffSpread(hg) + '</span></div>' +
+          '<div class="perf"></div><div class="game-body">' +
+          '<div class="pick-buttons">' + teamBtn(hg,'away', pick.winner==='away', false, false, true, true) + teamBtn(hg,'home', pick.winner==='home', false, false, true, true) + '</div>' +
+          '<div class="muted">All 55 points go on this pick.</div></div></div>';
+      }
     } else {
       const usedValues = new Set(Object.values(adminEditDraft.gamePicks).map(p => p.value).filter(v => v != null));
       regular.forEach(g => {
@@ -2607,6 +2614,7 @@ const App = {
         ? { gamePicks: data.game_picks || {}, omitGameId: data.omit_game_id || null, tiebreaker: data.tiebreaker || { winner: null, total: '' } }
         : { gamePicks: {}, omitGameId: null, tiebreaker: { winner: null, total: '' } };
       adminEditHammerMode = data ? !!data.is_hammer : false;
+      adminEditHammerGameId = (data && data.is_hammer) ? (Object.keys(data.game_picks||{})[0] || null) : null;
       render();
     } catch(e){ showError(e); }
   },
@@ -2645,14 +2653,20 @@ const App = {
     adminEditDraft.tiebreaker = adminEditDraft.tiebreaker || {};
     adminEditDraft.tiebreaker.total = val === '' ? '' : parseInt(val,10);
   },
-  adminToggleHammerMode(){ adminEditHammerMode = !adminEditHammerMode; render(); },
+  adminToggleHammerMode(){ adminEditHammerMode = !adminEditHammerMode; if (!adminEditHammerMode) adminEditHammerGameId = null; render(); },
+  adminSetHammerGameChoice(gameId){ adminEditHammerGameId = gameId || null; adminEditDraft.gamePicks = {}; render(); },
   async adminSavePicks(){
     const w = getWeek(adminEditWeek);
     const regular = w.games.filter(g => !g.isTiebreaker);
     const tb = w.games.find(g => g.isTiebreaker);
+    let hammerGameToPersist = null;
     if (adminEditHammerMode){
-      const hg = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
-      if (!hg){ alert('No hammer game is set for this week.'); return; }
+      let hg = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
+      if (!hg && adminEditHammerGameId){
+        hg = regular.find(g => g.id === adminEditHammerGameId);
+        hammerGameToPersist = adminEditHammerGameId; // this week has no official Hammer game yet — set it now
+      }
+      if (!hg){ alert('Choose which game is the Hammer game for this player.'); return; }
       const p = adminEditDraft.gamePicks[hg.id];
       if (!p || !p.winner){ alert('Pick a winner for the hammer game.'); return; }
     } else {
@@ -2681,6 +2695,10 @@ const App = {
         is_hammer: adminEditHammerMode, is_insurance: adminEditExisting ? !!adminEditExisting.is_insurance : false
       });
       if (error) throw error;
+      if (hammerGameToPersist){
+        await sb.from('weeks').update({ hammer_game_id: hammerGameToPersist }).eq('week_number', adminEditWeek);
+        await loadWeekGames(adminEditWeek);
+      }
       const wasUsed = STATE.players[adminEditPlayerId] && STATE.players[adminEditPlayerId].hammerUsed;
       if (adminEditHammerMode && !wasUsed){
         await sb.from('profiles').update({ hammer_used: true }).eq('id', adminEditPlayerId);
@@ -2694,7 +2712,7 @@ const App = {
     } catch(e){ showError(e); }
   },
   adminCancelEdit(){
-    adminEditPlayerId = null; adminEditWeek = null; adminEditDraft = null; adminEditExisting = null; adminEditHammerMode = false;
+    adminEditPlayerId = null; adminEditWeek = null; adminEditDraft = null; adminEditExisting = null; adminEditHammerMode = false; adminEditHammerGameId = null;
     render();
   }
 };
