@@ -580,7 +580,32 @@ function tiebreakerWinnerCorrect(weekNum, playerId){
   return p.tiebreaker.winner === tb.winner ? 1 : 0;
 }
 function seasonTotal(playerId){
-  return Object.keys(STATE.weeks).map(Number).reduce((sum,n) => sum + weeklyScore(n, playerId), 0);
+  // Only count weeks whose last game has been played — otherwise Season Standings
+  // would creep up pick-by-pick as individual games finish during the current week,
+  // which just generates "why did my total change" questions mid-week. The current
+  // week's points land all at once, the moment its last game is decided.
+  return Object.keys(STATE.weeks).map(Number)
+    .filter(n => weekIsComplete(getWeek(n)))
+    .reduce((sum,n) => sum + weeklyScore(n, playerId), 0);
+}
+// Best-case points for the week: what a player already has locked in, plus the
+// confidence value of every pick on a game that hasn't been decided yet (as if
+// every one of those still-live/upcoming picks hits).
+function weeklyPossible(weekNum, playerId){
+  const w = getWeek(weekNum); const p = STATE.picks[pickDocId(weekNum, playerId)];
+  if (!w || !p) return 0;
+  let total = 0;
+  for (const g of w.games){
+    if (g.isTiebreaker) continue;
+    const pick = p.gamePicks && p.gamePicks[g.id];
+    if (!pick || !pick.winner) continue;
+    if (g.winner){
+      if (pick.winner === g.winner) total += pick.value;
+    } else {
+      total += pick.value;
+    }
+  }
+  return total;
 }
 
 // ---------- Supabase data access ----------
@@ -1464,15 +1489,17 @@ function computeStandingRanks(rows, valueKey){
   }
   return ranks;
 }
-function rankedTable(rows, valueKey, prizeAmounts, sectionId){
+function rankedTable(rows, valueKey, prizeAmounts, sectionId, extraCol){
   const showPrize = !!prizeAmounts;
-  let html = '<div class="scroll-wrap" id="' + sectionId + '-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
+  const colHeader = extraCol ? extraCol.header : 'Back';
+  let html = '<div class="scroll-wrap" id="' + sectionId + '-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">' + esc(colHeader) + '</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
   const lead = rows.length ? rows[0][valueKey] : 0;
   const eligibleRows = showPrize ? rows.filter(r => r.eligible !== false) : [];
   const { shares, splitPids } = showPrize ? computeTieSplitShares(eligibleRows, valueKey, prizeAmounts) : { shares:{}, splitPids:{} };
   const ranks = computeStandingRanks(rows, valueKey);
   rows.forEach((r,i) => {
     const back = lead - r[valueKey];
+    const extraCellValue = extraCol ? extraCol.cell(r) : (back===0?'—':'-'+back);
     let prizeCell = '';
     if (showPrize){
       if (r.eligible === false){
@@ -1484,7 +1511,7 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
     }
     const isMe = r.pid === session.playerId;
     html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + ranks[i] + '</td><td>' + (ranks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
-      '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td>' + prizeCell + '</tr>';
+      '<td class="num">' + r[valueKey] + '</td><td class="num">' + extraCellValue + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
   return html;
@@ -1579,12 +1606,12 @@ function renderStandings(){
   let rows = players.map(pid => {
     const pick = STATE.picks[pickDocId(wk,pid)];
     const tag = pick && pick.isHammer ? '(hammer)' : (pick && pick.isInsurance ? '(insurance)' : '');
-    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(wk, pid) : 0, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
+    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), possible: weeklyPossible(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(wk, pid) : 0, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
   }).filter(r => r.submitted);
   rows.sort((a,b) => b.score - a.score || a.diff - b.diff || b.wcorrect - a.wcorrect);
   const weeklyPrizes = (weekIsComplete(w) && (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null)) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
-  else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly');
+  else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly', { header: 'Possible', cell: r => r.possible });
   if (rows.length && !weekIsComplete(w)) html += '<p class="muted" style="margin-top:-6px;">This week isn\'t final yet, so prize money isn\'t awarded here until every game has a result.</p>';
 
   const seasonWeeks = Object.keys(STATE.weeks).map(Number);
