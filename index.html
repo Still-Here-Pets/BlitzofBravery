@@ -1634,10 +1634,11 @@ function renderStandings(){
   } else {
     let moneyRows = players.map(pid => ({ pid, name: STATE.players[pid].displayName, won: moneyTotals[pid]||0 })).filter(r => r.won > 0);
     moneyRows.sort((a,b) => b.won - a.won);
+    const moneyRanks = computeStandingRanks(moneyRows, 'won');
     html += '<div class="scroll-wrap" id="money-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Won</th></tr></thead><tbody>';
     moneyRows.forEach((r,i) => {
       const isMe = r.pid === session.playerId;
-      html += '<tr' + (isMe ? ' class="me-row" id="money-body-me"' : '') + '><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + '</td><td class="num">$' + (Number.isInteger(r.won)?r.won:r.won.toFixed(2)) + '</td></tr>';
+      html += '<tr' + (isMe ? ' class="me-row" id="money-body-me"' : '') + '><td>' + moneyRanks[i] + '</td><td>' + (moneyRanks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + '</td><td class="num">$' + (Number.isInteger(r.won)?r.won:r.won.toFixed(2)) + '</td></tr>';
     });
     html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
   }
