@@ -1171,12 +1171,12 @@ function otherPlayersOptions(selectedId){
   return html;
 }
 function gameStatusPriority(g){
-  // Not-yet-played first, then live, then final — so upcoming games surface at
-  // the top of a comparison view instead of being buried under decided ones.
+  // Live games first (most worth watching right now), then not-yet-played,
+  // then final — so decided games settle to the bottom of a comparison view.
   const hasScore = g.awayScore != null || g.homeScore != null;
   if (g.winner) return 2;
-  if (hasScore) return 1;
-  return 0;
+  if (hasScore) return 0;
+  return 1;
 }
 function renderOtherPlayerPicks(wk, w, pid){
   const name = (STATE.players[pid]||{}).displayName || 'This player';
@@ -1448,12 +1448,29 @@ function champBadge(pid){
   if (pid === survivorWinnerPid(1)) html += ' <span class="badge gold" title="Won this season\'s 1-Point Survivor pool">&#127942; 1-pt Survivor</span>';
   return html;
 }
+// Standard competition ranking ("1224" ranking): rows tied on the sort key
+// (value, and for weekly rows the tiebreaker distance/winner-correctness too)
+// all show the same place, and the next distinct row jumps to its true position
+// rather than the next consecutive number — e.g. four people tied for 1st are
+// all shown as 1st, and whoever's next is 5th, not 2nd.
+function computeStandingRanks(rows, valueKey){
+  const ranks = [];
+  for (let i = 0; i < rows.length; i++){
+    const tiedWithPrev = i > 0 &&
+      rows[i][valueKey] === rows[i-1][valueKey] &&
+      (rows[i].diff ?? null) === (rows[i-1].diff ?? null) &&
+      (rows[i].wcorrect ?? null) === (rows[i-1].wcorrect ?? null);
+    ranks.push(tiedWithPrev ? ranks[i-1] : i+1);
+  }
+  return ranks;
+}
 function rankedTable(rows, valueKey, prizeAmounts, sectionId){
   const showPrize = !!prizeAmounts;
   let html = '<div class="scroll-wrap" id="' + sectionId + '-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">Back</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
   const lead = rows.length ? rows[0][valueKey] : 0;
   const eligibleRows = showPrize ? rows.filter(r => r.eligible !== false) : [];
   const { shares, splitPids } = showPrize ? computeTieSplitShares(eligibleRows, valueKey, prizeAmounts) : { shares:{}, splitPids:{} };
+  const ranks = computeStandingRanks(rows, valueKey);
   rows.forEach((r,i) => {
     const back = lead - r[valueKey];
     let prizeCell = '';
@@ -1466,7 +1483,7 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId){
       }
     }
     const isMe = r.pid === session.playerId;
-    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + (i+1) + '</td><td>' + (i===0?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
+    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + ranks[i] + '</td><td>' + (ranks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
       '<td class="num">' + r[valueKey] + '</td><td class="num">' + (back===0?'—':'-'+back) + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
