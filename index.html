@@ -1414,7 +1414,6 @@ function renderScenarios(){
 
   html += '<p class="muted" style="margin-top:12px;">Based on ' + undecided.length + ' remaining game' + (undecided.length===1?'':'s') + ' this week, with every other player\'s picks already locked in.</p>';
   html += renderScenarioSection('This Week', computeScenarioSummary(wk, w, undecided, 'weekly'), undecided);
-  html += renderScenarioSection('Season (projected once this week wraps)', computeScenarioSummary(wk, w, undecided, 'season'), undecided);
   return html;
 }
 function ptsBadge(value, gameWinner, pickWinner){
@@ -1484,7 +1483,8 @@ function computeStandingRanks(rows, valueKey){
     const tiedWithPrev = i > 0 &&
       rows[i][valueKey] === rows[i-1][valueKey] &&
       (rows[i].diff ?? null) === (rows[i-1].diff ?? null) &&
-      (rows[i].wcorrect ?? null) === (rows[i-1].wcorrect ?? null);
+      (rows[i].wcorrect ?? null) === (rows[i-1].wcorrect ?? null) &&
+      (rows[i].eligible ?? true) === (rows[i-1].eligible ?? true);
     ranks.push(tiedWithPrev ? ranks[i-1] : i+1);
   }
   return ranks;
@@ -1608,7 +1608,11 @@ function renderStandings(){
     const tag = pick && pick.isHammer ? '(hammer)' : (pick && pick.isInsurance ? '(insurance)' : '');
     return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), possible: weeklyPossible(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(wk, pid) : 0, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
   }).filter(r => r.submitted);
-  rows.sort((a,b) => b.score - a.score || a.diff - b.diff || b.wcorrect - a.wcorrect);
+  // Hammer and Insurance picks aren't on the same footing as a normal week's 10-game
+  // score — a hammer's 55-or-nothing and an insurance auto-fill aren't really
+  // comparable to a weighted spread across 10 games, and neither can win the weekly
+  // prize anyway. So they're sorted to the bottom instead of mixed into the real race.
+  rows.sort((a,b) => (b.eligible - a.eligible) || (b.score - a.score) || (a.diff - b.diff) || (b.wcorrect - a.wcorrect));
   const weeklyPrizes = (weekIsComplete(w) && (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null)) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
   else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly', { header: 'Possible', cell: r => r.possible });
