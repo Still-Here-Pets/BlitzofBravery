@@ -2698,7 +2698,20 @@ const App = {
     adminEditDraft.tiebreaker = adminEditDraft.tiebreaker || {};
     adminEditDraft.tiebreaker.total = val === '' ? '' : parseInt(val,10);
   },
-  adminToggleHammerMode(){ adminEditHammerMode = !adminEditHammerMode; if (!adminEditHammerMode) adminEditHammerGameId = null; render(); },
+  adminToggleHammerMode(){
+    const turningOn = !adminEditHammerMode;
+    // Switching into Hammer mode must start from a clean slate — otherwise a leftover
+    // pick on whatever game ends up being the hammer game (from the normal/insurance
+    // picks that were loaded) can look "already selected" without the admin ever
+    // clicking it, and the other 9 stray entries would silently ride along to save.
+    if (turningOn && !(adminEditExisting && adminEditExisting.is_hammer)){
+      adminEditDraft.gamePicks = {};
+      adminEditDraft.omitGameId = null;
+    }
+    adminEditHammerMode = turningOn;
+    if (!adminEditHammerMode) adminEditHammerGameId = null;
+    render();
+  },
   adminSetHammerGameChoice(gameId){ adminEditHammerGameId = gameId || null; adminEditDraft.gamePicks = {}; render(); },
   async adminSavePicks(){
     const w = getWeek(adminEditWeek);
@@ -2714,6 +2727,10 @@ const App = {
       if (!hg){ alert('Choose which game is the Hammer game for this player.'); return; }
       const p = adminEditDraft.gamePicks[hg.id];
       if (!p || !p.winner){ alert('Pick a winner for the hammer game.'); return; }
+      // Hard guard: a hammer week is this one game and nothing else, no matter how
+      // adminEditDraft.gamePicks got populated — never let stray entries from a
+      // previously-loaded normal or insurance week ride along into a hammer save.
+      adminEditDraft.gamePicks = { [hg.id]: { winner: p.winner, value: 55 } };
     } else {
       if (!adminEditDraft.omitGameId){ alert('Pick one game to omit (10 of 11 are played).'); return; }
       const toScore = regular.filter(g => g.id !== adminEditDraft.omitGameId);
