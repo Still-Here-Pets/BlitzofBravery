@@ -580,12 +580,13 @@ function tiebreakerWinnerCorrect(weekNum, playerId){
   return p.tiebreaker.winner === tb.winner ? 1 : 0;
 }
 function seasonTotal(playerId){
-  // Only count weeks whose last game has been played — otherwise Season Standings
-  // would creep up pick-by-pick as individual games finish during the current week,
-  // which just generates "why did my total change" questions mid-week. The current
-  // week's points land all at once, the moment its last game is decided.
+  // Only count weeks whose scoring is done — otherwise Season Standings would creep
+  // up pick-by-pick as individual games finish during the current week, which just
+  // generates "why did my total change" questions mid-week. The current week's points
+  // land all at once, the moment its last SUNDAY game is decided — the Monday night
+  // tiebreaker carries no confidence value, so it doesn't hold up the season total.
   return Object.keys(STATE.weeks).map(Number)
-    .filter(n => weekIsComplete(getWeek(n)))
+    .filter(n => weekScoringComplete(getWeek(n)))
     .reduce((sum,n) => sum + weeklyScore(n, playerId), 0);
 }
 // Best-case points for the week: what a player already has locked in, plus the
@@ -1554,11 +1555,15 @@ function computeTieSplitShares(eligibleRows, valueKey, prizeAmounts){
   }
   return { shares, splitPids };
 }
-// A week only counts toward prize money once every one of its games has a decided
-// winner. Otherwise everyone's score is still 0/tied and whoever a plain sort happens
-// to put first/second/third would get credited money for a week that hasn't been played.
-function weekIsComplete(w){
-  return !!(w && w.games && w.games.length && w.games.every(g => g.winner != null));
+// Season totals and Survivor eliminations only depend on the 10 regular-game picks —
+// the Monday night tiebreaker game carries no confidence value and never adds or costs
+// points, it's purely for breaking weekly-prize ties. So those two don't need to wait
+// on MNF to finish; they're done the moment every Sunday (non-tiebreaker) game is final.
+// The weekly cash prize is different — ties there ARE broken by the tiebreaker score,
+// so computeMoneyTotals and the weekly leaderboard still wait on weekIsComplete (below).
+function weekScoringComplete(w){
+  const regular = w && w.games ? w.games.filter(g => !g.isTiebreaker) : [];
+  return regular.length > 0 && regular.every(g => g.winner != null);
 }
 function computeMoneyTotals(){
   const players = Object.keys(STATE.players);
@@ -1619,7 +1624,7 @@ function renderStandings(){
   if (rows.length && !weekIsComplete(w)) html += '<p class="muted" style="margin-top:-6px;">This week isn\'t final yet, so prize money isn\'t awarded here until every game has a result.</p>';
 
   const seasonWeeks = Object.keys(STATE.weeks).map(Number);
-  const seasonComplete = seasonWeeks.length > 0 && seasonWeeks.every(n => weekIsComplete(getWeek(n)));
+  const seasonComplete = seasonWeeks.length > 0 && seasonWeeks.every(n => weekScoringComplete(getWeek(n)));
   html += '<hr class="divider"><div class="section-head"><h3 style="margin:0;">Season Standings' + (seasonComplete ? '' : ' <span class="badge" style="font-size:11px;vertical-align:middle;">In Progress</span>') + '</h3><button class="find-me-btn" onclick="App.findMe(\'season\')">📍 Find Me</button></div>';
   let season = players.map(pid => ({ pid, name: STATE.players[pid].displayName, total: seasonTotal(pid) }));
   season.sort((a,b) => b.total - a.total);
@@ -1659,8 +1664,10 @@ function survivorStatus(playerId, pointValue){
     if (!w || !w.games || !w.games.length) continue;
     // A week that hasn't finished yet (the current, still-open week) can't eliminate
     // anyone just because they haven't submitted picks for it yet — they still have
-    // time to. Only a week whose games are all decided can count a missing pick as a loss.
-    if (!weekIsComplete(w)) return { alive:true, pendingWeek:n };
+    // time to. Only a week whose Sunday games are all decided can count a missing pick
+    // as a loss — a survivor pick is always on a regular game, never the Monday night
+    // tiebreaker, so there's no reason to wait on MNF to resolve this week's survivors.
+    if (!weekScoringComplete(w)) return { alive:true, pendingWeek:n };
     const p = STATE.picks[pickDocId(n, playerId)];
     if (!p){ return { alive:false, eliminatedWeek:n, reason:'no picks submitted' }; }
     const entry = p.isHammer
