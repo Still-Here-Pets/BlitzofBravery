@@ -1410,7 +1410,7 @@ function computeLeagueScenarios(wk, w, undecided){
     rows.push({ pid, base: weeklyScore(wk, pid), away, home });
   });
   const P = rows.length;
-  const stats = rows.map(() => ({ top3Locked:0, top3Possible:0, outright:0, tieLead:0, andHome: total - 1, andAway: total - 1, pl: [0,1,2].map(() => ({ clean:0, any:0, andHome: total - 1, andAway: total - 1 })) }));
+  const stats = rows.map(() => ({ top3Locked:0, top3Possible:0, outright:0, tieLead:0, andHome: total - 1, andAway: total - 1, pl: [0,1,2].map(() => ({ clean:0, any:0, andHome: total - 1, andAway: total - 1, rivals: new Set() })) }));
   // Per player, per remaining game, per result (0 = away wins, 1 = home wins): how many of the
   // outcomes with that result leave them locked in / possible for the Top 3, and winning / tying
   // for first. Flat layout: ((player * n + game) * 2 + result) * 4 + [locked, possible, then for places 1-3: clean, any].
@@ -1453,6 +1453,9 @@ function computeLeagueScenarios(wk, w, undecided){
       whole.forEach(t => { options.push([t, 'away']); options.push([t, 'home']); });
     }
     const m = members.length;
+    for (let q = 0; q < 3; q++){
+      if (above <= q && q <= above + m - 1) members.forEach(x => members.forEach(y => { if (x !== y) stats[x].pl[q].rivals.add(rows[y].pid); }));
+    }
     for (const [T, W] of options){
       for (let a = 0; a < m; a++){
         const pa = tbPred[members[a]];
@@ -1558,7 +1561,7 @@ function renderLeagueScenarios(wk, w, undecided){
       const clean = b.c[q], any = b.a[q];
       if (clean === half) return { t: 'Finishes ' + ORD[q], c: 'good' };
       if (any === 0) return { t: 'Out of ' + ORD[q], c: 'missed' };
-      if (clean === 0) return { t: 'Tie for ' + ORD[q] + ' at best', c: '' };
+      if (clean === 0) return { t: 'Only on the tiebreaker', c: '' };
       return { t: 'Still alive · ' + clean + ' of ' + half, c: 'gold' };
     };
   }
@@ -1607,13 +1610,39 @@ function renderLeagueScenarios(wk, w, undecided){
 
   // ---- Finishing places ----
   const tbName = side => res.tbGame ? (side === 'away' ? res.tbGame.away : res.tbGame.home) : '';
-  const tbNote = c => {
-    const t = res.tbPred[c.pid];
-    if (!t || (t.total == null && !t.winner)) return ' Tiebreaker pick: none.';
-    return ' Tiebreaker pick: ' + (t.winner ? esc(tbName(t.winner)) + ', ' : '') + (t.total != null ? t.total + ' total.' : 'no total.');
+  const nameOf = pid => esc(STATE.players[pid].displayName);
+  // How the Monday night tiebreaker splits a tie between two players, given their picks.
+  const pairText = (pid, rid) => {
+    const a = res.tbPred[pid], b = res.tbPred[rid];
+    if (res.tbFinal){
+      const T = res.tbGame.awayScore + res.tbGame.homeScore;
+      const da = a.total == null ? Infinity : Math.abs(a.total - T), db = b.total == null ? Infinity : Math.abs(b.total - T);
+      return da < db ? 'wins the tiebreaker' : (db < da ? 'loses the tiebreaker' : 'level on the tiebreaker');
+    }
+    const w = x => x && x.winner ? esc(tbName(x.winner)) : 'no winner';
+    if (a.total == null && b.total == null) return 'neither has a tiebreaker total — it comes down to who picked the winning team';
+    if (a.total == null) return 'has no tiebreaker total, so loses the tie';
+    if (b.total == null) return 'wins the tie (they have no tiebreaker total)';
+    if (a.total === b.total){
+      return a.winner === b.winner ? 'identical tiebreaker pick (' + w(a) + ', ' + a.total + ') — they would share the place' : 'same total (' + a.total + '), so whoever picked the winning team wins it (you: ' + w(a) + ', them: ' + w(b) + ')';
+    }
+    const lo = Math.min(a.total, b.total), hi = Math.max(a.total, b.total), mid = (lo + hi) / 2;
+    const mine = a.total < b.total;
+    const loWins = Number.isInteger(mid) ? 'a total of ' + (mid - 1) + ' or less' : 'a total of ' + Math.floor(mid) + ' or less';
+    const hiWins = Number.isInteger(mid) ? 'a total of ' + (mid + 1) + ' or more' : 'a total of ' + Math.ceil(mid) + ' or more';
+    let t = 'wins it with ' + (mine ? loWins : hiWins) + ', loses with ' + (mine ? hiWins : loWins);
+    if (Number.isInteger(mid)) t += '; at exactly ' + mid + ' the winning-team pick decides (you: ' + w(a) + ', them: ' + w(b) + ')';
+    return t;
   };
-  html += '<div class="scenario-card"><h3 style="margin:0 0 10px;">Who Can Finish Where</h3>';
-  html += '<p class="muted" style="margin:0 0 4px;">For each prize place, everyone who can still land there. "Clean" means no one else finishes with the same score. "Clean" places are settled by the picks alone. Where players tie on points, Monday night\'s tiebreaker (closest total, then whoever picked the winning team) decides — those cases are marked "Tiebreaker only" or noted under the player, along with their tiebreaker pick. Open "What each result does" to see how every remaining game moves that player.</p>';
+  const tbNote = (c, q) => {
+    const t = res.tbPred[c.pid];
+    let out = ' Tiebreaker pick: ' + (!t || (t.total == null && !t.winner) ? 'none.' : (t.winner ? esc(tbName(t.winner)) + ', ' : '') + (t.total != null ? t.total + ' total.' : 'no total.'));
+    const rivals = [...c.pl[q].rivals].filter(r => r !== c.pid);
+    if (rivals.length){
+      out += '<br>If tied: ' + rivals.slice(0, 4).map(r => 'vs ' + nameOf(r) + ' — ' + pairText(c.pid, r)).join('; ') + (rivals.length > 4 ? '; and ' + (rivals.length - 4) + ' more' : '') + '.';
+    }
+    return out;
+  };
   [0,1,2].forEach(q => {
     const list = contenders.filter(c => c.pl[q].any > 0).sort((a, b) => (b.pl[q].clean - a.pl[q].clean) || (b.pl[q].any - a.pl[q].any) || byNow(a, b));
     html += '<div class="scenario-row" style="margin-top:16px;"><strong>' + ORD[q] + ' place</strong></div>';
@@ -1632,10 +1661,10 @@ function renderLeagueScenarios(wk, w, undecided){
           if (pl.andHome & bit) needs.push(esc(g.home) + ' win');
           else if (pl.andAway & bit) needs.push(esc(g.away) + ' win');
         });
-        detail = '<p class="muted" style="margin:2px 0 0;">' + (needs.length ? 'Needs: ' + needs.join(' · ') : 'No single result is required — it takes a specific combination of results.') + (pl.any > pl.clean ? ' In ' + (pl.any - pl.clean) + ' more outcomes a tie is settled by the tiebreaker.' : '') + tbNote(c) + '</p>';
+        detail = '<p class="muted" style="margin:2px 0 0;">' + (needs.length ? 'Needs: ' + needs.join(' · ') + '.' : 'No single result is required — it takes a specific combination of results.') + (pl.any > pl.clean ? ' In ' + (pl.any - pl.clean) + (pl.any - pl.clean === 1 ? ' more outcome' : ' more outcomes') + ' it comes down to the tiebreaker.' : '') + tbNote(c, q) + '</p>';
       } else {
         right = '<span><span class="badge">Tiebreaker only</span> <span class="muted">' + pl.any + ' of ' + total + ' outcomes</span></span>';
-        detail = '<p class="muted" style="margin:2px 0 0;">Only reachable by winning a tie on Monday night\'s tiebreaker.' + tbNote(c) + '</p>';
+        detail = '<p class="muted" style="margin:2px 0 0;">Only reachable by winning a tie on Monday night\'s tiebreaker.' + tbNote(c, q) + '</p>';
       }
       html += row(c, right) + detail + (pl.clean === total ? '' : breakdown(c, 'p' + q));
     });
