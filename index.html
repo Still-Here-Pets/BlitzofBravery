@@ -1389,6 +1389,124 @@ function renderScenarioSection(title, result, undecided){
   html += '</div>';
   return html;
 }
+// League-wide view: tries every combination of the remaining games once, for everyone who
+// is still in the weekly-prize race (hammer/insurance weeks can't take a prize slot, so
+// they're left out), and records for each player how often they land in the Top 3 or win it.
+// Tied scores are ranked best-case/worst-case — the Monday night tiebreaker hasn't been
+// played yet, so a tie at the cutoff or at the top is "unresolved", not guessed at.
+function computeLeagueScenarios(wk, w, undecided){
+  const n = undecided.length, total = 1 << n;
+  const rows = [];
+  Object.keys(STATE.players).forEach(pid => {
+    const pick = STATE.picks[pickDocId(wk, pid)];
+    if (!pick || pick.isHammer || pick.isInsurance) return;
+    const away = new Array(n).fill(0), home = new Array(n).fill(0);
+    undecided.forEach((g, j) => {
+      const p = pick.gamePicks && pick.gamePicks[g.id];
+      if (!p || !p.winner) return;
+      if (p.winner === 'away') away[j] = p.value || 0; else home[j] = p.value || 0;
+    });
+    rows.push({ pid, base: weeklyScore(wk, pid), away, home });
+  });
+  const P = rows.length;
+  const stats = rows.map(() => ({ top3Locked:0, top3Possible:0, outright:0, tieLead:0, andHome: total - 1, andAway: total - 1 }));
+  const sig = new Array(total);
+  const scores = new Int32Array(P);
+  const cnt = new Int32Array(128), gt = new Int32Array(128);
+  for (let i = 0; i < total; i++){
+    cnt.fill(0);
+    for (let p = 0; p < P; p++){
+      let s = rows[p].base;
+      const a = rows[p].away, h = rows[p].home;
+      for (let j = 0; j < n; j++) s += (i & (1 << j)) ? h[j] : a[j];
+      scores[p] = s; cnt[s]++;
+    }
+    let run = 0;
+    for (let s = 127; s >= 0; s--){ gt[s] = run; run += cnt[s]; }
+    const inTop = [];
+    for (let p = 0; p < P; p++){
+      const s = scores[p], above = gt[s], tied = cnt[s] - 1, st = stats[p];
+      if (above + tied + 1 <= 3) st.top3Locked++;
+      if (above <= 2){ st.top3Possible++; inTop.push(p); }
+      if (above === 0){
+        if (tied === 0){ st.outright++; st.andHome &= i; st.andAway &= ~i; }
+        else st.tieLead++;
+      }
+    }
+    sig[i] = inTop.join(',');
+  }
+  // A remaining game "decides the Top 3" if flipping just its result can change who is in it.
+  const swing = [];
+  for (let j = 0; j < n; j++){
+    const bit = 1 << j;
+    let matters = false;
+    for (let i = 0; i < total && !matters; i++){
+      if (i & bit) continue;
+      if (sig[i] !== sig[i | bit]) matters = true;
+    }
+    if (matters) swing.push(undecided[j]);
+  }
+  const contenders = rows.map((r, p) => Object.assign({ pid: r.pid, base: r.base }, stats[p])).filter(c => c.top3Possible > 0);
+  return { n, total, contenders, swing, undecided };
+}
+function renderLeagueScenarios(wk, w, undecided){
+  const res = computeLeagueScenarios(wk, w, undecided);
+  const { total, contenders, swing } = res;
+  const byNow = (a, b) => (b.base - a.base) || String(STATE.players[a.pid].displayName).localeCompare(String(STATE.players[b.pid].displayName));
+  const nameCell = c => esc(STATE.players[c.pid].displayName) + champBadge(c.pid);
+  const row = (c, right) => '<div class="scenario-row" style="justify-content:space-between;flex-wrap:wrap;margin-top:8px;"><span>' + nameCell(c) + ' <span class="muted">· ' + c.base + ' pts now</span></span>' + right + '</div>';
+
+  // ---- Top 3 ----
+  let html = '<div class="scenario-card"><h3 style="margin:0 0 10px;">Top 3 Picture</h3>';
+  html += '<p class="muted" style="margin:0 0 10px;">Only players still in the weekly-prize race are listed — hammer and insurance weeks can\'t take a prize slot. Everyone else is out of the Top 3 whatever happens.</p>';
+  html += '<div class="scenario-row"><strong>Games that decide who is in the Top 3:</strong></div>';
+  if (swing.length) html += '<ul>' + swing.map(g => '<li>' + esc(g.away) + ' @ ' + esc(g.home) + '</li>').join('') + '</ul>';
+  else html += '<p class="muted" style="margin:4px 0 0;">The Top 3 is already set — nothing left on the board changes who is in it.</p>';
+  const locked = contenders.filter(c => c.top3Locked === total).sort(byNow);
+  const hunt = contenders.filter(c => c.top3Locked !== total).sort(byNow);
+  if (locked.length){
+    html += '<div class="scenario-row" style="margin-top:14px;"><strong>Locked into the Top 3</strong></div>';
+    locked.forEach(c => { html += row(c, '<span class="badge good">Locked In</span>'); });
+  }
+  if (hunt.length){
+    html += '<div class="scenario-row" style="margin-top:14px;"><strong>Still in the hunt</strong></div>';
+    hunt.forEach(c => { html += row(c, '<span><span class="badge gold">Still Possible</span> <span class="muted">' + c.top3Possible + ' of ' + total + ' outcomes</span></span>'); });
+  }
+  if (!locked.length && !hunt.length) html += '<div class="empty" style="margin-top:10px;">Nobody in the weekly-prize race has a path to the Top 3.</div>';
+  html += '<p class="muted" style="margin:12px 0 0;font-size:12.5px;">Counts are out of every possible result of the remaining games — they\'re not odds, since some results are far likelier than others. A tie at the 3rd/4th cutoff is settled by Monday night\'s tiebreaker, so tied players show as "Still Possible".</p>';
+  html += '</div>';
+
+  // ---- Win it outright ----
+  const winners = contenders.filter(c => c.outright > 0 || c.tieLead > 0).sort((a, b) => (b.outright - a.outright) || byNow(a, b));
+  html += '<div class="scenario-card"><h3 style="margin:0 0 10px;">Winning It Outright</h3>';
+  if (!winners.length){
+    html += '<div class="empty">Nobody can still finish alone in first.</div>';
+  } else {
+    html += '<p class="muted" style="margin:0 0 4px;">"Outright" means nobody else finishes with the same score. "Needs" lists results that have to happen in every winning case for that player.</p>';
+    winners.forEach(c => {
+      let right, detail = '';
+      if (c.outright === total){
+        right = '<span class="badge good">Locked In</span>';
+        detail = '<p class="muted" style="margin:2px 0 0;">Wins outright whatever happens.</p>';
+      } else if (c.outright > 0){
+        right = '<span><span class="badge gold">Still Possible</span> <span class="muted">' + c.outright + ' of ' + total + ' outcomes</span></span>';
+        const needs = [];
+        res.undecided.forEach((g, j) => {
+          const bit = 1 << j;
+          if (c.andHome & bit) needs.push(esc(g.home) + ' win');
+          else if (c.andAway & bit) needs.push(esc(g.away) + ' win');
+        });
+        detail = '<p class="muted" style="margin:2px 0 0;">' + (needs.length ? 'Needs: ' + needs.join(' · ') : 'No single result is required — it takes a specific combination of results.') + (c.tieLead ? ' Also ties for the lead in ' + c.tieLead + ' more.' : '') + '</p>';
+      } else {
+        right = '<span><span class="badge">Tie only</span> <span class="muted">' + c.tieLead + ' of ' + total + ' outcomes</span></span>';
+        detail = '<p class="muted" style="margin:2px 0 0;">Can only tie for the lead — Monday night\'s tiebreaker would decide it.</p>';
+      }
+      html += row(c, right) + detail;
+    });
+  }
+  html += '</div>';
+  return html;
+}
 function renderScenarios(){
   const wk = scenariosViewWeek != null ? scenariosViewWeek : STATE.meta.currentWeek;
   const w = getWeek(wk);
@@ -1414,7 +1532,8 @@ function renderScenarios(){
   }
 
   html += '<p class="muted" style="margin-top:12px;">Based on ' + undecided.length + ' remaining game' + (undecided.length===1?'':'s') + ' this week, with every other player\'s picks already locked in.</p>';
-  html += renderScenarioSection('This Week', computeScenarioSummary(wk, w, undecided, 'weekly'), undecided);
+  html += renderLeagueScenarios(wk, w, undecided);
+  html += renderScenarioSection('Your Chances', computeScenarioSummary(wk, w, undecided, 'weekly'), undecided);
   return html;
 }
 function ptsBadge(value, gameWinner, pickWinner){
@@ -1466,9 +1585,12 @@ function survivorWinnerPid(pointValue){
   const alive = Object.keys(STATE.players).filter(pid => survivorStatus(pid, pointValue).alive);
   return alive.length === 1 ? alive[0] : null;
 }
-function champBadge(pid){
+function champBadge(pid, skipHammer){
   const notes = STATE.players[pid] && STATE.players[pid].championNotes;
   let html = notes ? ' <span class="badge" title="Champion history">&#127942; ' + esc(notes) + '</span>' : '';
+  // Season-long marker: this player has already spent their one Seau's Hammer.
+  // (skipHammer is for the weekly leaderboard row that already says "(hammer)".)
+  if (!skipHammer && STATE.players[pid] && STATE.players[pid].hammerUsed) html += ' <span class="badge" title="Has already used Seau\'s Hammer this season">&#9889; Hammer used</span>';
   if (pid === survivorWinnerPid(10)) html += ' <span class="badge gold" title="Won this season\'s 10-Point Survivor pool">&#127942; 10-pt Survivor</span>';
   if (pid === survivorWinnerPid(1)) html += ' <span class="badge gold" title="Won this season\'s 1-Point Survivor pool">&#127942; 1-pt Survivor</span>';
   return html;
@@ -1511,7 +1633,7 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId, extraCol){
       }
     }
     const isMe = r.pid === session.playerId;
-    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + ranks[i] + '</td><td>' + (ranks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid) + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
+    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + ranks[i] + '</td><td>' + (ranks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid, r.tag === '(hammer)') + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
       '<td class="num">' + r[valueKey] + '</td><td class="num">' + extraCellValue + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
