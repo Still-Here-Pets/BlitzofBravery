@@ -512,6 +512,7 @@ let mentionQuery = '';
 let standingsViewWeek = null;
 let standingsSearch = '';
 let scenariosViewWeek = null;
+let scenarioOpen = {}; // which "What each result does" panels are expanded, so the 45s auto-refresh doesn't collapse them
 let scheduleTiebreakerId = null;
 let pendingWeekInput = null;
 let adminEditPlayerId = null;
@@ -1410,6 +1411,10 @@ function computeLeagueScenarios(wk, w, undecided){
   });
   const P = rows.length;
   const stats = rows.map(() => ({ top3Locked:0, top3Possible:0, outright:0, tieLead:0, andHome: total - 1, andAway: total - 1 }));
+  // Per player, per remaining game, per result (0 = away wins, 1 = home wins): how many of the
+  // outcomes with that result leave them locked in / possible for the Top 3, and winning / tying
+  // for first. Flat layout: ((player * n + game) * 2 + result) * 4 + [locked, possible, outright, tie].
+  const G = new Int32Array(Math.max(1, P * n * 2 * 4));
   const sig = new Array(total);
   const scores = new Int32Array(P);
   const cnt = new Int32Array(128), gt = new Int32Array(128);
@@ -1426,11 +1431,20 @@ function computeLeagueScenarios(wk, w, undecided){
     const inTop = [];
     for (let p = 0; p < P; p++){
       const s = scores[p], above = gt[s], tied = cnt[s] - 1, st = stats[p];
-      if (above + tied + 1 <= 3) st.top3Locked++;
-      if (above <= 2){ st.top3Possible++; inTop.push(p); }
-      if (above === 0){
-        if (tied === 0){ st.outright++; st.andHome &= i; st.andAway &= ~i; }
-        else st.tieLead++;
+      const isLocked = above + tied + 1 <= 3, isPossible = above <= 2;
+      const isOutright = above === 0 && tied === 0, isTie = above === 0 && tied > 0;
+      if (isLocked) st.top3Locked++;
+      if (isPossible){ st.top3Possible++; inTop.push(p); }
+      if (isOutright){ st.outright++; st.andHome &= i; st.andAway &= ~i; }
+      else if (isTie) st.tieLead++;
+      if (isLocked || isPossible || isOutright || isTie){
+        for (let j = 0; j < n; j++){
+          const k = (((p * n + j) * 2) + ((i >> j) & 1)) * 4;
+          if (isLocked) G[k]++;
+          if (isPossible) G[k + 1]++;
+          if (isOutright) G[k + 2]++;
+          if (isTie) G[k + 3]++;
+        }
       }
     }
     sig[i] = inTop.join(',');
@@ -1446,7 +1460,16 @@ function computeLeagueScenarios(wk, w, undecided){
     }
     if (matters) swing.push(undecided[j]);
   }
-  const contenders = rows.map((r, p) => Object.assign({ pid: r.pid, base: r.base }, stats[p])).filter(c => c.top3Possible > 0);
+  const contenders = rows.map((r, p) => {
+    const byGame = [], picks = [];
+    for (let j = 0; j < n; j++){
+      const side = [];
+      for (let s = 0; s < 2; s++){ const k = (((p * n + j) * 2) + s) * 4; side.push({ locked: G[k], possible: G[k+1], outright: G[k+2], tie: G[k+3] }); }
+      byGame.push(side);
+      picks.push(r.away[j] ? { side: 'away', value: r.away[j] } : (r.home[j] ? { side: 'home', value: r.home[j] } : null));
+    }
+    return Object.assign({ pid: r.pid, base: r.base, byGame, picks }, stats[p]);
+  }).filter(c => c.top3Possible > 0);
   return { n, total, contenders, swing, undecided };
 }
 function renderLeagueScenarios(wk, w, undecided){
@@ -1455,6 +1478,43 @@ function renderLeagueScenarios(wk, w, undecided){
   const byNow = (a, b) => (b.base - a.base) || String(STATE.players[a.pid].displayName).localeCompare(String(STATE.players[b.pid].displayName));
   const nameCell = c => esc(STATE.players[c.pid].displayName) + champBadge(c.pid);
   const row = (c, right) => '<div class="scenario-row" style="justify-content:space-between;flex-wrap:wrap;margin-top:8px;"><span>' + nameCell(c) + ' <span class="muted">· ' + c.base + ' pts now</span></span>' + right + '</div>';
+
+  // What each possible result of each remaining game does for one player, holding the other
+  // games open. "x of y" = outcomes (out of the y that share that result) that still work for them.
+  const half = total / 2;
+  function top3Label(b){
+    if (b.locked === half) return { t: 'Locks the Top 3', c: 'good' };
+    if (b.possible === 0) return { t: 'Out of the Top 3', c: 'missed' };
+    return { t: 'Still alive · ' + b.possible + ' of ' + half, c: 'gold' };
+  }
+  function winLabel(b){
+    if (b.outright === half) return { t: 'Wins outright', c: 'good' };
+    if (b.outright === 0 && b.tie === 0) return { t: 'Out of the win', c: 'missed' };
+    if (b.outright === 0) return { t: 'Tie for first at best', c: '' };
+    return { t: 'Still alive · ' + b.outright + ' of ' + half, c: 'gold' };
+  }
+  function breakdown(c, kind){
+    const key = kind + ':' + c.pid;
+    const labelOf = kind === 'top3' ? top3Label : winLabel;
+    let inner = '';
+    res.undecided.forEach((g, j) => {
+      const labels = [labelOf(c.byGame[j][0]), labelOf(c.byGame[j][1])];
+      const pick = c.picks[j];
+      const teamOf = s => s === 0 ? g.away : g.home;
+      const pickNote = pick ? 'picked ' + esc(teamOf(pick.side === 'away' ? 0 : 1)) + ' · ' + pick.value + ' pts' : 'no pick';
+      inner += '<div style="margin-top:8px;"><div><strong>' + esc(g.away) + ' @ ' + esc(g.home) + '</strong> <span class="muted">(' + pickNote + ')</span></div>';
+      if (labels[0].t === labels[1].t){
+        inner += '<div class="muted" style="margin-top:2px;">Either result: <span class="badge ' + labels[0].c + '">' + labels[0].t + '</span></div>';
+      } else {
+        [0, 1].forEach(s => {
+          const gets = pick && ((pick.side === 'away') === (s === 0)) ? ' <span class="muted">+' + pick.value + ' pts</span>' : '';
+          inner += '<div style="margin-top:3px;">' + esc(teamOf(s)) + ' win' + gets + ' &rarr; <span class="badge ' + labels[s].c + '">' + labels[s].t + '</span></div>';
+        });
+      }
+      inner += '</div>';
+    });
+    return '<details ' + (scenarioOpen[key] ? 'open ' : '') + 'ontoggle="App.toggleScenarioDetail(\'' + key + '\', this.open)" style="margin:2px 0 0;"><summary class="muted" style="cursor:pointer;font-size:13px;">What each result does</summary>' + inner + '</details>';
+  }
 
   // ---- Top 3 ----
   let html = '<div class="scenario-card"><h3 style="margin:0 0 10px;">Top 3 Picture</h3>';
@@ -1470,7 +1530,7 @@ function renderLeagueScenarios(wk, w, undecided){
   }
   if (hunt.length){
     html += '<div class="scenario-row" style="margin-top:14px;"><strong>Still in the hunt</strong></div>';
-    hunt.forEach(c => { html += row(c, '<span><span class="badge gold">Still Possible</span> <span class="muted">' + c.top3Possible + ' of ' + total + ' outcomes</span></span>'); });
+    hunt.forEach(c => { html += row(c, '<span><span class="badge gold">Still Possible</span> <span class="muted">' + c.top3Possible + ' of ' + total + ' outcomes</span></span>') + breakdown(c, 'top3'); });
   }
   if (!locked.length && !hunt.length) html += '<div class="empty" style="margin-top:10px;">Nobody in the weekly-prize race has a path to the Top 3.</div>';
   html += '<p class="muted" style="margin:12px 0 0;font-size:12.5px;">Counts are out of every possible result of the remaining games — they\'re not odds, since some results are far likelier than others. A tie at the 3rd/4th cutoff is settled by Monday night\'s tiebreaker, so tied players show as "Still Possible".</p>';
@@ -1501,7 +1561,7 @@ function renderLeagueScenarios(wk, w, undecided){
         right = '<span><span class="badge">Tie only</span> <span class="muted">' + c.tieLead + ' of ' + total + ' outcomes</span></span>';
         detail = '<p class="muted" style="margin:2px 0 0;">Can only tie for the lead — Monday night\'s tiebreaker would decide it.</p>';
       }
-      html += row(c, right) + detail;
+      html += row(c, right) + detail + (c.outright === total ? '' : breakdown(c, 'win'));
     });
   }
   html += '</div>';
@@ -2124,6 +2184,7 @@ const App = {
   setStandingsWeek(v){ standingsViewWeek = parseInt(v,10); render(); },
   setStandingsSearch(v){ standingsSearch = v; render(); },
   setScenariosWeek(v){ scenariosViewWeek = parseInt(v,10); render(); },
+  toggleScenarioDetail(key, open){ if (open) scenarioOpen[key] = true; else delete scenarioOpen[key]; },
   findMe(sectionId){
     const wrap = document.getElementById(sectionId + '-wrap');
     const row = document.getElementById(sectionId + '-body-me');
