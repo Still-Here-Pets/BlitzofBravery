@@ -640,7 +640,7 @@ async function loadAllWeeksAndPicks(){
   (weekRows||[]).forEach(w => { STATE.weeks[weekKey(w.week_number)] = { locked: w.locked, games: [] }; });
   (gameRows||[]).forEach(g => { const k = weekKey(g.week_number); if (!STATE.weeks[k]) STATE.weeks[k] = { locked:false, games:[] }; STATE.weeks[k].games.push(rowToGame(g)); });
   STATE.players = {};
-  (profileRows||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes }; });
+  (profileRows||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes, hammerUsed: p.hammer_used }; });
   STATE.picks = {};
   (pickRows||[]).forEach(p => { STATE.picks[pickDocId(p.week_number, p.player_id)] = rowToPick(p); });
 }
@@ -1410,14 +1410,65 @@ function computeLeagueScenarios(wk, w, undecided){
     rows.push({ pid, base: weeklyScore(wk, pid), away, home });
   });
   const P = rows.length;
-  const stats = rows.map(() => ({ top3Locked:0, top3Possible:0, outright:0, tieLead:0, andHome: total - 1, andAway: total - 1 }));
+  const stats = rows.map(() => ({ top3Locked:0, top3Possible:0, outright:0, tieLead:0, andHome: total - 1, andAway: total - 1, pl: [0,1,2].map(() => ({ clean:0, any:0, andHome: total - 1, andAway: total - 1 })) }));
   // Per player, per remaining game, per result (0 = away wins, 1 = home wins): how many of the
   // outcomes with that result leave them locked in / possible for the Top 3, and winning / tying
-  // for first. Flat layout: ((player * n + game) * 2 + result) * 4 + [locked, possible, outright, tie].
-  const G = new Int32Array(Math.max(1, P * n * 2 * 4));
+  // for first. Flat layout: ((player * n + game) * 2 + result) * 4 + [locked, possible, then for places 1-3: clean, any].
+  const G = new Int32Array(Math.max(1, P * n * 2 * 8));
   const sig = new Array(total);
   const scores = new Int32Array(P);
   const cnt = new Int32Array(128), gt = new Int32Array(128);
+  // Monday-night tiebreaker (closest total wins, then whoever picked the winner). Its result
+  // isn't known yet, so a tie is resolved by trying every total/winner it could end with.
+  const tbGame = w.games.find(g => g.isTiebreaker);
+  const tbFinal = !!(tbGame && tbGame.awayScore != null && tbGame.homeScore != null);
+  const tbActual = tbFinal ? { total: tbGame.awayScore + tbGame.homeScore, winner: tbGame.awayScore > tbGame.homeScore ? 'away' : (tbGame.homeScore > tbGame.awayScore ? 'home' : 'tie') } : null;
+  const tbPred = rows.map(r => {
+    const p = STATE.picks[pickDocId(wk, r.pid)];
+    const t = p && p.tiebreaker ? p.tiebreaker : null;
+    const total = t && t.total !== '' && t.total != null && !isNaN(Number(t.total)) ? Number(t.total) : null;
+    return { total, winner: t ? t.winner : null };
+  });
+  // Which places (bit0 = 1st, bit1 = 2nd, bit2 = 3rd, bit3 = 4th or lower) could each member of a
+  // group of tied players end up in, given every way the tiebreaker could go.
+  function resolveTie(members, above, out){
+    let options = [];
+    if (tbFinal) options.push([tbActual.total, tbActual.winner]);
+    else {
+      const ps = [...new Set(members.map(m => tbPred[m].total).filter(v => v != null))].sort((x, y) => x - y);
+      const ts = [];
+      if (!ps.length) ts.push(0);
+      else {
+        // Every order change happens at a predicted total or halfway between two of them; try
+        // each of those points plus a point inside every gap between them.
+        const bp = new Set(ps);
+        for (let x = 0; x < ps.length; x++) for (let y = x + 1; y < ps.length; y++) bp.add((ps[x] + ps[y]) / 2);
+        const sb = [...bp].sort((x, y) => x - y);
+        ts.push(sb[0] - 1, sb[sb.length - 1] + 1);
+        sb.forEach((v, k) => { ts.push(v); if (k) ts.push((sb[k - 1] + v) / 2); });
+      }
+      // Totals are whole numbers, so only whole-number candidates count.
+      const whole = new Set();
+      ts.forEach(t => { [Math.floor(t), Math.ceil(t)].forEach(v => { if (v >= 0) whole.add(v); }); });
+      whole.forEach(t => { options.push([t, 'away']); options.push([t, 'home']); });
+    }
+    const m = members.length;
+    for (const [T, W] of options){
+      for (let a = 0; a < m; a++){
+        const pa = tbPred[members[a]];
+        const da = pa.total == null ? Infinity : Math.abs(pa.total - T), wa = pa.winner === W ? 1 : 0;
+        let better = 0;
+        for (let b = 0; b < m; b++){
+          if (b === a) continue;
+          const pb = tbPred[members[b]];
+          const db = pb.total == null ? Infinity : Math.abs(pb.total - T), wb = pb.winner === W ? 1 : 0;
+          if (db < da || (db === da && wb > wa)) better++;
+        }
+        out[members[a]] |= 1 << Math.min(above + better, 3);
+      }
+    }
+  }
+  const masks = new Int32Array(P);
   for (let i = 0; i < total; i++){
     cnt.fill(0);
     for (let p = 0; p < P; p++){
@@ -1428,22 +1479,36 @@ function computeLeagueScenarios(wk, w, undecided){
     }
     let run = 0;
     for (let s = 127; s >= 0; s--){ gt[s] = run; run += cnt[s]; }
+    masks.fill(0);
+    const seen = {};
+    for (let p = 0; p < P; p++){
+      const s = scores[p], above = gt[s];
+      if (above > 2) { masks[p] = 8; continue; }
+      if (cnt[s] === 1){ masks[p] = 1 << above; continue; }
+      if (seen[s]) continue;
+      seen[s] = 1;
+      const members = [];
+      for (let q = 0; q < P; q++) if (scores[q] === s) members.push(q);
+      resolveTie(members, above, masks);
+    }
     const inTop = [];
     for (let p = 0; p < P; p++){
-      const s = scores[p], above = gt[s], tied = cnt[s] - 1, st = stats[p];
-      const isLocked = above + tied + 1 <= 3, isPossible = above <= 2;
-      const isOutright = above === 0 && tied === 0, isTie = above === 0 && tied > 0;
+      const mk = masks[p], st = stats[p];
+      const isLocked = (mk & 8) === 0 && mk !== 0, isPossible = (mk & 7) !== 0;
       if (isLocked) st.top3Locked++;
       if (isPossible){ st.top3Possible++; inTop.push(p); }
-      if (isOutright){ st.outright++; st.andHome &= i; st.andAway &= ~i; }
-      else if (isTie) st.tieLead++;
-      if (isLocked || isPossible || isOutright || isTie){
+      for (let k = 0; k < 3; k++){
+        if (mk & (1 << k)) st.pl[k].any++;
+        if (mk === (1 << k)){ st.pl[k].clean++; st.pl[k].andHome &= i; st.pl[k].andAway &= ~i; }
+      }
+      if (mk === 1){ st.outright++; st.andHome &= i; st.andAway &= ~i; }
+      else if (mk & 1) st.tieLead++;
+      if (isPossible){
         for (let j = 0; j < n; j++){
-          const k = (((p * n + j) * 2) + ((i >> j) & 1)) * 4;
+          const k = (((p * n + j) * 2) + ((i >> j) & 1)) * 8;
           if (isLocked) G[k]++;
-          if (isPossible) G[k + 1]++;
-          if (isOutright) G[k + 2]++;
-          if (isTie) G[k + 3]++;
+          G[k + 1]++;
+          for (let q = 0; q < 3; q++){ if (mk === (1 << q)) G[k + 2 + 2*q]++; if (mk & (1 << q)) G[k + 3 + 2*q]++; }
         }
       }
     }
@@ -1464,13 +1529,13 @@ function computeLeagueScenarios(wk, w, undecided){
     const byGame = [], picks = [];
     for (let j = 0; j < n; j++){
       const side = [];
-      for (let s = 0; s < 2; s++){ const k = (((p * n + j) * 2) + s) * 4; side.push({ locked: G[k], possible: G[k+1], outright: G[k+2], tie: G[k+3] }); }
+      for (let s = 0; s < 2; s++){ const k = (((p * n + j) * 2) + s) * 8; side.push({ locked: G[k], possible: G[k+1], c: [G[k+2], G[k+4], G[k+6]], a: [G[k+3], G[k+5], G[k+7]] }); }
       byGame.push(side);
       picks.push(r.away[j] ? { side: 'away', value: r.away[j] } : (r.home[j] ? { side: 'home', value: r.home[j] } : null));
     }
     return Object.assign({ pid: r.pid, base: r.base, byGame, picks }, stats[p]);
   }).filter(c => c.top3Possible > 0);
-  return { n, total, contenders, swing, undecided };
+  return { n, total, contenders, swing, undecided, tbGame, tbFinal, tbPred: Object.fromEntries(rows.map((r, p) => [r.pid, tbPred[p]])) };
 }
 function renderLeagueScenarios(wk, w, undecided){
   const res = computeLeagueScenarios(wk, w, undecided);
@@ -1487,15 +1552,19 @@ function renderLeagueScenarios(wk, w, undecided){
     if (b.possible === 0) return { t: 'Out of the Top 3', c: 'missed' };
     return { t: 'Still alive · ' + b.possible + ' of ' + half, c: 'gold' };
   }
-  function winLabel(b){
-    if (b.outright === half) return { t: 'Wins outright', c: 'good' };
-    if (b.outright === 0 && b.tie === 0) return { t: 'Out of the win', c: 'missed' };
-    if (b.outright === 0) return { t: 'Tie for first at best', c: '' };
-    return { t: 'Still alive · ' + b.outright + ' of ' + half, c: 'gold' };
+  const ORD = ['1st','2nd','3rd'];
+  function placeLabel(q){
+    return function(b){
+      const clean = b.c[q], any = b.a[q];
+      if (clean === half) return { t: 'Finishes ' + ORD[q], c: 'good' };
+      if (any === 0) return { t: 'Out of ' + ORD[q], c: 'missed' };
+      if (clean === 0) return { t: 'Tie for ' + ORD[q] + ' at best', c: '' };
+      return { t: 'Still alive · ' + clean + ' of ' + half, c: 'gold' };
+    };
   }
   function breakdown(c, kind){
     const key = kind + ':' + c.pid;
-    const labelOf = kind === 'top3' ? top3Label : winLabel;
+    const labelOf = kind === 'top3' ? top3Label : placeLabel(Number(kind.slice(1)));
     let inner = '';
     res.undecided.forEach((g, j) => {
       const labels = [labelOf(c.byGame[j][0]), labelOf(c.byGame[j][1])];
@@ -1533,37 +1602,44 @@ function renderLeagueScenarios(wk, w, undecided){
     hunt.forEach(c => { html += row(c, '<span><span class="badge gold">Still Possible</span> <span class="muted">' + c.top3Possible + ' of ' + total + ' outcomes</span></span>') + breakdown(c, 'top3'); });
   }
   if (!locked.length && !hunt.length) html += '<div class="empty" style="margin-top:10px;">Nobody in the weekly-prize race has a path to the Top 3.</div>';
-  html += '<p class="muted" style="margin:12px 0 0;font-size:12.5px;">Counts are out of every possible result of the remaining games — they\'re not odds, since some results are far likelier than others. A tie at the 3rd/4th cutoff is settled by Monday night\'s tiebreaker, so tied players show as "Still Possible".</p>';
+  html += '<p class="muted" style="margin:12px 0 0;font-size:12.5px;">Counts are out of every possible result of the remaining games — they\'re not odds, since some results are far likelier than others. A tie at the 3rd/4th cutoff is settled by Monday night\'s tiebreaker (closest total, then whoever picked the winning team) — each possible finish already accounts for who would win that tiebreaker.</p>';
   html += '</div>';
 
-  // ---- Win it outright ----
-  const winners = contenders.filter(c => c.outright > 0 || c.tieLead > 0).sort((a, b) => (b.outright - a.outright) || byNow(a, b));
-  html += '<div class="scenario-card"><h3 style="margin:0 0 10px;">Winning It Outright</h3>';
-  if (!winners.length){
-    html += '<div class="empty">Nobody can still finish alone in first.</div>';
-  } else {
-    html += '<p class="muted" style="margin:0 0 4px;">"Outright" means nobody else finishes with the same score. "Needs" lists results that have to happen in every winning case for that player.</p>';
-    winners.forEach(c => {
+  // ---- Finishing places ----
+  const tbName = side => res.tbGame ? (side === 'away' ? res.tbGame.away : res.tbGame.home) : '';
+  const tbNote = c => {
+    const t = res.tbPred[c.pid];
+    if (!t || (t.total == null && !t.winner)) return ' Tiebreaker pick: none.';
+    return ' Tiebreaker pick: ' + (t.winner ? esc(tbName(t.winner)) + ', ' : '') + (t.total != null ? t.total + ' total.' : 'no total.');
+  };
+  html += '<div class="scenario-card"><h3 style="margin:0 0 10px;">Who Can Finish Where</h3>';
+  html += '<p class="muted" style="margin:0 0 4px;">For each prize place, everyone who can still land there. "Clean" means no one else finishes with the same score. "Clean" places are settled by the picks alone. Where players tie on points, Monday night\'s tiebreaker (closest total, then whoever picked the winning team) decides — those cases are marked "Tiebreaker only" or noted under the player, along with their tiebreaker pick. Open "What each result does" to see how every remaining game moves that player.</p>';
+  [0,1,2].forEach(q => {
+    const list = contenders.filter(c => c.pl[q].any > 0).sort((a, b) => (b.pl[q].clean - a.pl[q].clean) || (b.pl[q].any - a.pl[q].any) || byNow(a, b));
+    html += '<div class="scenario-row" style="margin-top:16px;"><strong>' + ORD[q] + ' place</strong></div>';
+    if (!list.length){ html += '<p class="muted" style="margin:4px 0 0;">Nobody can still finish ' + ORD[q] + '.</p>'; return; }
+    list.forEach(c => {
+      const pl = c.pl[q];
       let right, detail = '';
-      if (c.outright === total){
+      if (pl.clean === total){
         right = '<span class="badge good">Locked In</span>';
-        detail = '<p class="muted" style="margin:2px 0 0;">Wins outright whatever happens.</p>';
-      } else if (c.outright > 0){
-        right = '<span><span class="badge gold">Still Possible</span> <span class="muted">' + c.outright + ' of ' + total + ' outcomes</span></span>';
+        detail = '<p class="muted" style="margin:2px 0 0;">Finishes ' + ORD[q] + ' whatever happens.</p>';
+      } else if (pl.clean > 0){
+        right = '<span><span class="badge gold">Still Possible</span> <span class="muted">' + pl.clean + ' of ' + total + ' outcomes</span></span>';
         const needs = [];
         res.undecided.forEach((g, j) => {
           const bit = 1 << j;
-          if (c.andHome & bit) needs.push(esc(g.home) + ' win');
-          else if (c.andAway & bit) needs.push(esc(g.away) + ' win');
+          if (pl.andHome & bit) needs.push(esc(g.home) + ' win');
+          else if (pl.andAway & bit) needs.push(esc(g.away) + ' win');
         });
-        detail = '<p class="muted" style="margin:2px 0 0;">' + (needs.length ? 'Needs: ' + needs.join(' · ') : 'No single result is required — it takes a specific combination of results.') + (c.tieLead ? ' Also ties for the lead in ' + c.tieLead + ' more.' : '') + '</p>';
+        detail = '<p class="muted" style="margin:2px 0 0;">' + (needs.length ? 'Needs: ' + needs.join(' · ') : 'No single result is required — it takes a specific combination of results.') + (pl.any > pl.clean ? ' In ' + (pl.any - pl.clean) + ' more outcomes a tie is settled by the tiebreaker.' : '') + tbNote(c) + '</p>';
       } else {
-        right = '<span><span class="badge">Tie only</span> <span class="muted">' + c.tieLead + ' of ' + total + ' outcomes</span></span>';
-        detail = '<p class="muted" style="margin:2px 0 0;">Can only tie for the lead — Monday night\'s tiebreaker would decide it.</p>';
+        right = '<span><span class="badge">Tiebreaker only</span> <span class="muted">' + pl.any + ' of ' + total + ' outcomes</span></span>';
+        detail = '<p class="muted" style="margin:2px 0 0;">Only reachable by winning a tie on Monday night\'s tiebreaker.' + tbNote(c) + '</p>';
       }
-      html += row(c, right) + detail + (c.outright === total ? '' : breakdown(c, 'win'));
+      html += row(c, right) + detail + (pl.clean === total ? '' : breakdown(c, 'p' + q));
     });
-  }
+  });
   html += '</div>';
   return html;
 }
@@ -1645,12 +1721,20 @@ function survivorWinnerPid(pointValue){
   const alive = Object.keys(STATE.players).filter(pid => survivorStatus(pid, pointValue).alive);
   return alive.length === 1 ? alive[0] : null;
 }
-function champBadge(pid, skipHammer){
+function hammerPickWeeks(pid){
+  const out = [];
+  Object.keys(STATE.weeks).forEach(n => { const p = STATE.picks[pickDocId(Number(n), pid)]; if (p && p.isHammer) out.push(Number(n)); });
+  return out;
+}
+// beforeWeek: when given (weekly leaderboard), only a hammer from an EARLIER week counts;
+// this week's hammer is shown by the "(hammer)" tag instead. Otherwise: used any time this season.
+function champBadge(pid, beforeWeek){
   const notes = STATE.players[pid] && STATE.players[pid].championNotes;
   let html = notes ? ' <span class="badge" title="Champion history">&#127942; ' + esc(notes) + '</span>' : '';
   // Season-long marker: this player has already spent their one Seau's Hammer.
   // (skipHammer is for the weekly leaderboard row that already says "(hammer)".)
-  if (!skipHammer && STATE.players[pid] && STATE.players[pid].hammerUsed) html += ' <span class="badge" title="Has already used Seau\'s Hammer this season">&#9889; Hammer used</span>';
+  const hammerDone = beforeWeek != null ? hammerPickWeeks(pid).some(n => n < beforeWeek) : ((STATE.players[pid] && STATE.players[pid].hammerUsed) || hammerPickWeeks(pid).length > 0);
+  if (hammerDone) html += ' <span class="badge" title="Has already used Seau\'s Hammer this season">&#9889; Hammer used</span>';
   if (pid === survivorWinnerPid(10)) html += ' <span class="badge gold" title="Won this season\'s 10-Point Survivor pool">&#127942; 10-pt Survivor</span>';
   if (pid === survivorWinnerPid(1)) html += ' <span class="badge gold" title="Won this season\'s 1-Point Survivor pool">&#127942; 1-pt Survivor</span>';
   return html;
@@ -1672,7 +1756,7 @@ function computeStandingRanks(rows, valueKey){
   }
   return ranks;
 }
-function rankedTable(rows, valueKey, prizeAmounts, sectionId, extraCol){
+function rankedTable(rows, valueKey, prizeAmounts, sectionId, extraCol, badgeWeek){
   const showPrize = !!prizeAmounts;
   const colHeader = extraCol ? extraCol.header : 'Back';
   let html = '<div class="scroll-wrap" id="' + sectionId + '-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Pts</th><th class="num">' + esc(colHeader) + '</th>' + (showPrize?'<th class="num">Prize</th>':'') + '</tr></thead><tbody>';
@@ -1693,7 +1777,7 @@ function rankedTable(rows, valueKey, prizeAmounts, sectionId, extraCol){
       }
     }
     const isMe = r.pid === session.playerId;
-    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + ranks[i] + '</td><td>' + (ranks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid, r.tag === '(hammer)') + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
+    html += '<tr' + (isMe ? ' class="me-row" id="' + sectionId + '-body-me"' : '') + '><td>' + ranks[i] + '</td><td>' + (ranks[i]===1?'<span class="rank-1">&#9733; </span>':'') + esc(r.name) + champBadge(r.pid, badgeWeek) + (r.tag ? ' <span class="badge" title="This week was auto-filled for them">' + esc(r.tag) + '</span>' : '') + '</td>' +
       '<td class="num">' + r[valueKey] + '</td><td class="num">' + extraCellValue + '</td>' + prizeCell + '</tr>';
   });
   html += '</tbody></table><div class="scroll-hint">Scroll for more ↓</div></div>';
@@ -1802,7 +1886,7 @@ function renderStandings(){
   rows.sort((a,b) => (b.eligible - a.eligible) || (b.score - a.score) || (a.diff - b.diff) || (b.wcorrect - a.wcorrect));
   const weeklyPrizes = (weekIsComplete(w) && (STATE.meta.weekly1st!=null || STATE.meta.weekly2nd!=null || STATE.meta.weekly3rd!=null)) ? [STATE.meta.weekly1st, STATE.meta.weekly2nd, STATE.meta.weekly3rd] : null;
   if (!rows.length) html += '<div class="empty">No picks submitted yet for this week.</div>';
-  else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly', { header: 'Possible', cell: r => r.possible });
+  else html += rankedTable(rows, 'score', weeklyPrizes, 'weekly', { header: 'Possible', cell: r => r.possible }, wk);
   if (rows.length && !weekIsComplete(w)) html += '<p class="muted" style="margin-top:-6px;">This week isn\'t final yet, so prize money isn\'t awarded here until every game has a result.</p>';
 
   const seasonWeeks = Object.keys(STATE.weeks).map(Number);
