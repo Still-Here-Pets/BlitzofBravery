@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The Blitz of Bravery</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0B2016">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Blitz">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Playfair+Display:wght@900&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -719,6 +727,7 @@ async function loadHallOfFame(){
 
 function showError(e){ alert('Something went wrong: ' + (e && e.message ? e.message : e)); }
 let loadingDepth = 0;
+let refreshTimer = null;
 function setLoading(on){
   loadingDepth = Math.max(0, loadingDepth + (on ? 1 : -1));
   const el = document.getElementById('loadbar');
@@ -750,8 +759,17 @@ function render(){
     if (selStart != null && 'setSelectionRange' in el){ try { el.setSelectionRange(selStart, selEnd); } catch(e){} }
   }
   const app = document.getElementById('app');
-  if (view === 'login') { app.innerHTML = renderLogin(); restoreFocus(); return; }
-  if (view === 'resetPassword') { app.innerHTML = renderResetPassword(); restoreFocus(); return; }
+  // Sign-in and reset screens are rebuilt from scratch on every render, which would wipe
+  // whatever someone has typed (a password included). Carry the values across.
+  function keepFormValues(){
+    const saved = {};
+    app.querySelectorAll('input[id]').forEach(el => { if (el.value) saved[el.id] = { v: el.value, t: el.type }; });
+    return function restore(){
+      Object.keys(saved).forEach(id => { const el = document.getElementById(id); if (el && !el.value){ el.value = saved[id].v; if (saved[id].t === 'text' && el.type === 'password') el.type = 'text'; } });
+    };
+  }
+  if (view === 'login') { const back = keepFormValues(); app.innerHTML = renderLogin(); back(); restoreFocus(); return; }
+  if (view === 'resetPassword') { const back = keepFormValues(); app.innerHTML = renderResetPassword(); back(); restoreFocus(); return; }
   const topbar = renderTopbar();
   const whosPicking = renderWhosPicking();
   const tabs = renderTabs();
@@ -859,10 +877,22 @@ function renderResetPassword(){
     '</div></div>';
 }
 
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; try { render(); } catch(_){} });
+window.addEventListener('appinstalled', () => { deferredInstall = null; try { render(); } catch(_){} });
+function installCard(){
+  if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return '';
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let body;
+  if (deferredInstall) body = '<button class="btn btn-primary btn-block" onclick="App.installApp()">Install the app</button>';
+  else if (ios) body = '<p class="muted" style="margin:0;">In Safari, tap the <strong>Share</strong> button, then <strong>Add to Home Screen</strong>.</p>';
+  else body = '<p class="muted" style="margin:0;">In Chrome, open the <strong>&#8942; menu</strong> and choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</p>';
+  return '<div class="card"><h3 style="margin:0 0 8px;">Get the app</h3><p class="muted" style="margin:0 0 10px;">Put Blitz of Bravery on your home screen so it opens like a regular app.</p>' + body + '</div>';
+}
 function renderProfile(){
   const me = STATE.players[session.playerId] || {};
   const initial = (session.displayName||'').trim().charAt(0).toUpperCase() || '?';
-  let html = '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
+  let html = installCard() + '<div class="card" style="display:flex;align-items:center;gap:12px;">' +
     '<div class="wp-avatar" style="width:40px;height:40px;font-size:18px;">' + esc(initial) + '</div>' +
     '<div><div class="muted" style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;">Logged in as</div>' +
     '<div style="font-size:18px;font-weight:700;">' + esc(session.displayName) + '</div></div>' +
@@ -2292,6 +2322,7 @@ const App = {
     render();
   },
   setAuthMode(m){ authMode = m; render(); },
+  async installApp(){ if (!deferredInstall) return; deferredInstall.prompt(); try { await deferredInstall.userChoice; } catch(_){} deferredInstall = null; render(); },
   setScheduleFilter(v){ scheduleFilter = v; render(); },
   setScheduleLeague(lg){ scheduleLeagueFilter = lg; render(); },
   setStandingsWeek(v){ standingsViewWeek = parseInt(v,10); render(); },
@@ -2641,7 +2672,7 @@ const App = {
       await boot();
     } catch(e){ showError(e); btn.disabled=false; btn.textContent='Log In'; }
   },
-  async logout(){ await sb.auth.signOut(); session = {}; view = 'login'; draft = null; render(); },
+  async logout(){ await sb.auth.signOut(); if (refreshTimer){ clearInterval(refreshTimer); refreshTimer = null; } session = {}; view = 'login'; draft = null; render(); },
 
   setWinner(gameId, side){
     if (!draft.gamePicks[gameId]) draft.gamePicks[gameId] = { winner: null, value: null };
@@ -3110,6 +3141,7 @@ function injectTeamDatalists(){
 }
 
 // ---------- boot ----------
+if ('serviceWorker' in navigator) window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
 async function boot(){
   setLoading(true);
   try {
@@ -3119,7 +3151,15 @@ async function boot(){
       const { data: profile } = await sb.from('profiles').select('*').eq('id', authSession.user.id).maybeSingle();
       if (profile) session = { playerId: authSession.user.id, displayName: profile.display_name, isAdmin: profile.is_admin, hammerUsed: profile.hammer_used };
     }
-    try { await fetch('/api/refresh-scores'); } catch(e) { showToast('Couldn\'t reach live scores — showing the last saved results.'); }
+    // Live scores shouldn't hold up sign-in: wait a few seconds at most, then carry on and
+    // pull in the fresh scores whenever the refresh finishes.
+    const scoresRefresh = fetch('/api/refresh-scores').then(() => true).catch(() => false);
+    const refreshedInTime = await Promise.race([scoresRefresh, new Promise(r => setTimeout(() => r('slow'), 3000))]);
+    if (refreshedInTime === false) showToast('Couldn\'t reach live scores — showing the last saved results.');
+    else if (refreshedInTime === 'slow') scoresRefresh.then(async ok => {
+      if (!ok || !session.playerId) return;
+      try { await loadWeekGames(STATE.meta.currentWeek); render(); } catch(e) {}
+    });
     await loadConfig();
     await loadWeekGames(STATE.meta.currentWeek);
     await loadScheduleCache();
@@ -3128,7 +3168,10 @@ async function boot(){
     view = session.playerId ? 'picks' : 'login';
     if (session.playerId){
       await checkBoardUnseen();
-      setInterval(async () => { await checkBoardUnseen(); render(); }, 45000);
+      if (!refreshTimer) refreshTimer = setInterval(async () => {
+        if (view === 'login' || view === 'resetPassword' || !session.playerId) return;
+        await checkBoardUnseen(); render();
+      }, 45000);
     }
     render();
   } catch(e){ showError(e); } finally { setLoading(false); }
