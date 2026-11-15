@@ -1709,9 +1709,17 @@ function renderScenarios(){
   if (!w || !w.games || !w.games.length) return html + '<div class="empty" style="margin-top:14px;">No games have been posted for Week ' + esc(wk) + ' yet.</div>';
 
   const collegeGames = w.games.filter(g => !g.isTiebreaker && g.league === 'College');
-  const collegeFinal = collegeGames.every(g => g.winner != null);
-  if (!collegeFinal){
-    const remaining = collegeGames.filter(g => g.winner == null).length;
+  // Scenarios open once the Saturday college slate is done. A college game scheduled AFTER the first NFL
+  // kickoff (a late Sunday game, or one moved to Sunday) is just another remaining game — it must not
+  // keep the whole tab locked.
+  const nflKicks = w.games.filter(g => !g.isTiebreaker && g.league === 'NFL' && g.kickoff).map(g => new Date(g.kickoff).getTime());
+  const firstNfl = nflKicks.length ? Math.min.apply(null, nflKicks) : Infinity;
+  const nowMs = Date.now();
+  const blocking = collegeGames.filter(g => g.winner == null && !(g.kickoff && new Date(g.kickoff).getTime() >= firstNfl));
+  const collegeFinal = blocking.length === 0;
+  const nflStarted = w.games.some(g => !g.isTiebreaker && g.league === 'NFL' && (g.winner != null || g.awayScore != null || g.homeScore != null || (g.kickoff && new Date(g.kickoff).getTime() <= nowMs)));
+  if (!collegeFinal && !nflStarted){
+    const remaining = blocking.length;
     html += '<div class="banner" style="margin-top:14px;">🔒 Scenarios unlock once all of Week ' + esc(wk) + '\'s college games are final — ' + remaining + ' college game' + (remaining===1?' is':'s are') + ' still being played.</div>';
     return html;
   }
