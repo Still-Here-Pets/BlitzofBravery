@@ -22,33 +22,68 @@ const { createClient } = require('@supabase/supabase-js');
 // form seems to not be supported at all here. A single `dates=YYYYMMDD` (no
 // range) does work reliably, so fetch each day in the window separately and
 // merge, instead of asking for a range in one call.
-function nflScoreboardUrls(daysAhead) {
+function dayUrls(base, daysAhead) {
   const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
   const urls = [];
   for (let i = 0; i <= daysAhead; i++) {
     const d = new Date(Date.now() + i * 24 * 3600 * 1000);
-    urls.push(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=${fmt(d)}`);
+    urls.push({ url: base + (base.includes('?') ? '&' : '?') + 'dates=' + fmt(d), day: d.toISOString().slice(0, 10) });
   }
   return urls;
 }
-async function fetchNflEvents() {
-  const urls = nflScoreboardUrls(6);
-  const perDay = await Promise.all(urls.map(async u => {
+
+// ESPN sometimes returns a placeholder date (1993-01-31T23:30Z was observed) for games whose
+// kickoff time isn't final yet. Those games then fell outside every week's date window, so
+// they silently vanished from the admin's picker (this is how most of a week's NFL Sunday slate
+// and a big chunk of Saturday's college games went missing). A date is only trusted if it's
+// plausible; otherwise the day the game was fetched under is used, at a typical kickoff hour.
+function validIso(c) {
+  if (!c) return false;
+  const t = Date.parse(c);
+  return !isNaN(t) && new Date(t).getUTCFullYear() >= 2020;
+}
+function resolveKickoff(ev, comp, fallbackDay, league) {
+  for (const c of [comp.date, ev.date, comp.startDate]) if (validIso(c)) return { kickoff: c, approx: false };
+  if (fallbackDay) return { kickoff: fallbackDay + (league === 'NFL' ? 'T18:00:00Z' : 'T17:00:00Z'), approx: true };
+  return { kickoff: null, approx: true };
+}
+
+// Fetch a scoreboard one day at a time (a `dates=` range 400s on the NFL endpoint) and merge by event id,
+// tagging each event with the day it was fetched under so a bad date can fall back to it.
+async function fetchDays(base, daysAhead) {
+  const perDay = await Promise.all(dayUrls(base, daysAhead).map(async ({ url, day }) => {
     try {
-      const r = await fetch(u);
+      const r = await fetch(url);
       const text = await r.text();
-      let json; try { json = JSON.parse(text); } catch (e) { return { url: u, status: r.status, error: 'non-JSON body: ' + text.slice(0, 150) }; }
-      if (!r.ok) return { url: u, status: r.status, error: (json && json.message) || 'HTTP ' + r.status };
-      return { url: u, status: r.status, events: json.events || [] };
+      let json; try { json = JSON.parse(text); } catch (e) { return { url, status: r.status, error: 'non-JSON body: ' + text.slice(0, 150) }; }
+      if (!r.ok) return { url, status: r.status, error: (json && json.message) || 'HTTP ' + r.status };
+      return { url, status: r.status, day, events: json.events || [] };
     } catch (e) {
-      return { url: u, status: null, error: e.message };
+      return { url, status: null, error: e.message };
     }
   }));
   const byId = new Map();
-  perDay.forEach(d => (d.events || []).forEach(ev => byId.set(ev.id, ev)));
+  perDay.forEach(d => (d.events || []).forEach(ev => {
+    const prev = byId.get(ev.id);
+    const comp = ev.competitions && ev.competitions[0];
+    const good = comp && (validIso(comp.date) || validIso(ev.date));
+    if (!prev || (good && !prev._good)) byId.set(ev.id, Object.assign({}, ev, { _fallbackDay: d.day, _good: !!good }));
+  }));
   return { events: Array.from(byId.values()), perDay };
 }
-const ESPN_CFB = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300';
+const ESPN_NFL_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
+const ESPN_CFB_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300';
+async function fetchNflEvents() { return fetchDays(ESPN_NFL_BASE, 6); }
+async function fetchCfbEvents() {
+  // Per-day pulls (so a bad date can fall back to its day), plus the plain call as a safety net.
+  const [days, plain] = await Promise.all([
+    fetchDays(ESPN_CFB_BASE, 6),
+    fetch(ESPN_CFB_BASE).then(r => r.json()).catch(() => ({ events: [] }))
+  ]);
+  const have = new Set(days.events.map(e => e.id));
+  (plain.events || []).forEach(ev => { if (!have.has(ev.id)) days.events.push(Object.assign({}, ev, { _fallbackDay: null })); });
+  return days;
+}
 const ESPN_CFB_RANKINGS = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings';
 
 // The scoreboard endpoint's own per-competitor `curatedRank.current` field is
@@ -89,7 +124,8 @@ function parseEvents(json, league, rankById) {
       home: home.team.displayName,
       awayScore: away.score != null ? parseInt(away.score, 10) : null,
       homeScore: home.score != null ? parseInt(home.score, 10) : null,
-      kickoff: comp.date,
+      kickoff: resolveKickoff(ev, comp, ev._fallbackDay, league).kickoff,
+      kickoffApprox: resolveKickoff(ev, comp, ev._fallbackDay, league).approx,
       completed: !!(comp.status && comp.status.type && comp.status.type.completed),
       started: !!(comp.status && comp.status.type && comp.status.type.state !== 'pre'),
       spread: odds ? (odds.details || null) : null,
@@ -114,7 +150,7 @@ module.exports = async (req, res) => {
   try {
     const [nflRes, cfbRes, apRankById] = await Promise.all([
       fetchNflEvents(),
-      fetch(ESPN_CFB).then(r => r.json()),
+      fetchCfbEvents(),
       fetchApRankById()
     ]);
 
@@ -135,7 +171,7 @@ module.exports = async (req, res) => {
       await sb.from('schedule_cache')
         .delete()
         .eq('league', g.league).eq('away', g.away).eq('home', g.home);
-      if (!g.completed) {
+      if (!g.completed && g.kickoff) {
         await sb.from('schedule_cache').insert({
           league: g.league, away: g.away, home: g.home, kickoff: g.kickoff,
           spread: spreadText, records: g.records, week_label: 'Live sync',
