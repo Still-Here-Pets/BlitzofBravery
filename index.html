@@ -648,7 +648,7 @@ async function loadAllWeeksAndPicks(){
   (weekRows||[]).forEach(w => { STATE.weeks[weekKey(w.week_number)] = { locked: w.locked, games: [] }; });
   (gameRows||[]).forEach(g => { const k = weekKey(g.week_number); if (!STATE.weeks[k]) STATE.weeks[k] = { locked:false, games:[] }; STATE.weeks[k].games.push(rowToGame(g)); });
   STATE.players = {};
-  (profileRows||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes, hammerUsed: p.hammer_used }; });
+  (profileRows||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes, hammerUsed: p.hammer_used, hammerWeek: p.hammer_week }; });
   STATE.picks = {};
   (pickRows||[]).forEach(p => { STATE.picks[pickDocId(p.week_number, p.player_id)] = rowToPick(p); });
 }
@@ -714,7 +714,7 @@ async function loadOwnPick(wk, playerId){
 async function loadProfiles(){
   const { data } = await sb.from('profiles').select('*');
   STATE.players = {};
-  (data||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes, hammerUsed: p.hammer_used }; });
+  (data||[]).forEach(p => { STATE.players[p.id] = { displayName: p.display_name, isAdmin: p.is_admin, championNotes: p.champion_notes, hammerUsed: p.hammer_used, hammerWeek: p.hammer_week }; });
 }
 async function loadScheduleCache(){
   const { data } = await sb.from('schedule_cache').select('*').order('kickoff', { ascending: true });
@@ -1795,13 +1795,36 @@ function hammerPickWeeks(pid){
 }
 // beforeWeek: when given (weekly leaderboard), only a hammer from an EARLIER week counts;
 // this week's hammer is shown by the "(hammer)" tag instead. Otherwise: used any time this season.
+// A week's first kickoff is the moment its picks stop being secret. Before then, whether
+// someone played their Hammer THIS week is part of their pick, so it must not show anywhere
+// public (their own screen is fine — it's their own pick).
+function weekKickedOff(wk){
+  const w = getWeek(wk);
+  if (!w || !w.games || !w.games.length) return false;
+  const now = Date.now();
+  return w.games.some(g => g.winner != null || g.awayScore != null || g.homeScore != null || (g.kickoff && new Date(g.kickoff).getTime() <= now));
+}
+function hidingThisWeeksHammer(pid){
+  const cur = STATE.meta.currentWeek;
+  return pid !== session.playerId && !weekKickedOff(cur);
+}
+function hammerBadgeShown(pid, beforeWeek){
+  const p = STATE.players[pid] || {};
+  const cur = STATE.meta.currentWeek;
+  const hideCur = hidingThisWeeksHammer(pid);
+  const weeks = hammerPickWeeks(pid).filter(n => !(hideCur && n === cur));
+  if (beforeWeek != null) return weeks.some(n => n < beforeWeek);
+  if (weeks.length) return true;
+  if (!p.hammerUsed) return false;
+  if (hideCur && p.hammerWeek === cur) return false; // flag was set by this week's still-secret pick
+  return true;
+}
 function champBadge(pid, beforeWeek){
   const notes = STATE.players[pid] && STATE.players[pid].championNotes;
   let html = notes ? ' <span class="badge" title="Champion history">&#127942; ' + esc(notes) + '</span>' : '';
   // Season-long marker: this player has already spent their one Seau's Hammer.
   // (skipHammer is for the weekly leaderboard row that already says "(hammer)".)
-  const hammerDone = beforeWeek != null ? hammerPickWeeks(pid).some(n => n < beforeWeek) : ((STATE.players[pid] && STATE.players[pid].hammerUsed) || hammerPickWeeks(pid).length > 0);
-  if (hammerDone) html += ' <span class="badge" title="Has already used Seau\'s Hammer this season">&#9889; Hammer used</span>';
+  if (hammerBadgeShown(pid, beforeWeek)) html += ' <span class="badge" title="Has already used Seau\'s Hammer this season">&#9889; Hammer used</span>';
   if (pid === survivorWinnerPid(10)) html += ' <span class="badge gold" title="Won this season\'s 10-Point Survivor pool">&#127942; 10-pt Survivor</span>';
   if (pid === survivorWinnerPid(1)) html += ' <span class="badge gold" title="Won this season\'s 1-Point Survivor pool">&#127942; 1-pt Survivor</span>';
   return html;
@@ -1943,8 +1966,10 @@ function renderStandings(){
   const tbFinal = tb && tb.awayScore != null && tb.homeScore != null;
   let rows = players.map(pid => {
     const pick = STATE.picks[pickDocId(wk,pid)];
-    const tag = pick && pick.isHammer ? '(hammer)' : (pick && pick.isInsurance ? '(insurance)' : '');
-    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), possible: weeklyPossible(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(wk, pid) : 0, submitted: !!pick, eligible: !(pick && (pick.isHammer || pick.isInsurance)), tag };
+    // Until the week's first kickoff, picks are secret — so is who played the Hammer (or was auto-filled).
+    const hideSecret = wk === STATE.meta.currentWeek && hidingThisWeeksHammer(pid);
+    const tag = hideSecret ? '' : (pick && pick.isHammer ? '(hammer)' : (pick && pick.isInsurance ? '(insurance)' : ''));
+    return { pid, name: STATE.players[pid].displayName, score: weeklyScore(wk, pid), possible: weeklyPossible(wk, pid), diff: tbFinal ? tiebreakerDiff(wk, pid) : Infinity, wcorrect: tbFinal ? tiebreakerWinnerCorrect(wk, pid) : 0, submitted: !!pick, eligible: hideSecret ? true : !(pick && (pick.isHammer || pick.isInsurance)), tag };
   }).filter(r => r.submitted);
   // Hammer and Insurance picks aren't on the same footing as a normal week's 10-game
   // score — a hammer's 55-or-nothing and an insurance auto-fill aren't really
