@@ -589,13 +589,9 @@ function tiebreakerWinnerCorrect(weekNum, playerId){
   return p.tiebreaker.winner === tb.winner ? 1 : 0;
 }
 function seasonTotal(playerId){
-  // Only count weeks whose scoring is done — otherwise Season Standings would creep
-  // up pick-by-pick as individual games finish during the current week, which just
-  // generates "why did my total change" questions mid-week. The current week's points
-  // land all at once, the moment its last SUNDAY game is decided — the Monday night
-  // tiebreaker carries no confidence value, so it doesn't hold up the season total.
+  // Counts every week's points as games finish, including the current week, so Season
+  // Standings move after each game. Weeks with no decided games contribute 0.
   return Object.keys(STATE.weeks).map(Number)
-    .filter(n => weekScoringComplete(getWeek(n)))
     .reduce((sum,n) => sum + weeklyScore(n, playerId), 0);
 }
 // Best-case points for the week: what a player already has locked in, plus the
@@ -1149,7 +1145,9 @@ function renderPicks(){
   const regular = w.games.filter(g => !g.isTiebreaker);
   const tb = w.games.find(g => g.isTiebreaker);
   const hammerGame = w.hammerGameId ? regular.find(g => g.id === w.hammerGameId) : null;
-  const hammerAvailable = hammerGame && !session.hammerUsed;
+  // The Hammer counts as "used" the moment it's saved — including by THIS week's own pick. Someone who
+  // already saved a hammer this week and flips back to normal picks to look must still be able to flip it on again.
+  const hammerAvailable = hammerGame && (!session.hammerUsed || !!(existing && existing.isHammer));
   if (locked) html += '<div class="banner" style="margin-top:14px;">Picks for Week ' + esc(wk) + ' are locked.' + (existing ? ' Showing what you submitted.' : ' You did not submit picks for this week.') + '</div>';
   else if (hammerMode) html += '<div class="banner" style="margin-top:14px;background:color-mix(in srgb, var(--gold) 18%, var(--bg-elevated));border-color:var(--gold);">⚡ Seau\'s Hammer is ON — all 55 points ride on the hammer game below. You can only use this once all season, and you can\'t win the weekly 1st/2nd/3rd prize on a hammer week.</div>';
   else html += '<p class="muted" style="margin-top:14px;">Pick a winner for 10 of the 11 games below and assign each a confidence value 1–10 (used once each). Omit exactly one game. Then set your Monday-night tiebreaker.</p>';
@@ -1708,19 +1706,10 @@ function renderScenarios(){
   let html = '<label>Viewing</label><select onchange="App.setScenariosWeek(this.value)">' + weekOptions(wk) + '</select>';
   if (!w || !w.games || !w.games.length) return html + '<div class="empty" style="margin-top:14px;">No games have been posted for Week ' + esc(wk) + ' yet.</div>';
 
-  const collegeGames = w.games.filter(g => !g.isTiebreaker && g.league === 'College');
-  // Scenarios open once the Saturday college slate is done. A college game scheduled AFTER the first NFL
-  // kickoff (a late Sunday game, or one moved to Sunday) is just another remaining game — it must not
-  // keep the whole tab locked.
-  const nflKicks = w.games.filter(g => !g.isTiebreaker && g.league === 'NFL' && g.kickoff).map(g => new Date(g.kickoff).getTime());
-  const firstNfl = nflKicks.length ? Math.min.apply(null, nflKicks) : Infinity;
-  const nowMs = Date.now();
-  const blocking = collegeGames.filter(g => g.winner == null && !(g.kickoff && new Date(g.kickoff).getTime() >= firstNfl));
-  const collegeFinal = blocking.length === 0;
-  const nflStarted = w.games.some(g => !g.isTiebreaker && g.league === 'NFL' && (g.winner != null || g.awayScore != null || g.homeScore != null || (g.kickoff && new Date(g.kickoff).getTime() <= nowMs)));
-  if (!collegeFinal && !nflStarted){
-    const remaining = blocking.length;
-    html += '<div class="banner" style="margin-top:14px;">🔒 Scenarios unlock once all of Week ' + esc(wk) + '\'s college games are final — ' + remaining + ' college game' + (remaining===1?' is':'s are') + ' still being played.</div>';
+  // Scenarios are live all weekend: they open at the first kickoff (when everyone's picks become
+  // visible) and update after every game.
+  if (!isLocked(w)){
+    html += '<div class="banner" style="margin-top:14px;">🔒 Scenarios go live at the first kickoff of Week ' + esc(wk) + ', when everyone\'s picks are revealed.</div>';
     return html;
   }
 
@@ -1786,7 +1775,7 @@ function toLocalInputValue(iso){ if (!iso) return ''; const d = new Date(iso); i
 // Returns null while 0 or 2+ players remain (not settled, or edge case with no survivors).
 function survivorWinnerPid(pointValue){
   const alive = Object.keys(STATE.players).filter(pid => survivorStatus(pid, pointValue).alive);
-  return alive.length === 1 ? alive[0] : null;
+  return (alive.length === 1 && !survivorStatus(alive[0], pointValue).pendingWeek) ? alive[0] : null;
 }
 function hammerPickWeeks(pid){
   const out = [];
@@ -1948,7 +1937,7 @@ function computeMoneyTotals(){
   [[10, STATE.meta.survivor10pt], [1, STATE.meta.survivor1pt]].forEach(([pointValue, prize]) => {
     if (prize == null) return;
     const alive = players.filter(pid => survivorStatus(pid, pointValue).alive);
-    if (alive.length === 1) totals[alive[0]] = (totals[alive[0]]||0) + Number(prize);
+    if (alive.length === 1 && !survivorStatus(alive[0], pointValue).pendingWeek) totals[alive[0]] = (totals[alive[0]]||0) + Number(prize);
   });
   return totals;
 }
@@ -2025,18 +2014,25 @@ function survivorStatus(playerId, pointValue){
     // time to. Only a week whose Sunday games are all decided can count a missing pick
     // as a loss — a survivor pick is always on a regular game, never the Monday night
     // tiebreaker, so there's no reason to wait on MNF to resolve this week's survivors.
-    if (!weekScoringComplete(w)) return { alive:true, pendingWeek:n };
+    const wDone = weekScoringComplete(w);
     const p = STATE.picks[pickDocId(n, playerId)];
-    if (!p){ return { alive:false, eliminatedWeek:n, reason:'no picks submitted' }; }
+    if (!p){
+      if (!wDone) return { alive:true, pendingWeek:n };
+      return { alive:false, eliminatedWeek:n, reason:'no picks submitted' };
+    }
     const entry = p.isHammer
       ? Object.entries(p.gamePicks||{})[0]
       : Object.entries(p.gamePicks||{}).find(([gid,pick]) => pick.value === pointValue);
-    if (!entry){ return { alive:false, eliminatedWeek:n, reason:'no ' + pointValue + '-pt pick found' }; }
+    if (!entry){
+      if (!wDone) return { alive:true, pendingWeek:n };
+      return { alive:false, eliminatedWeek:n, reason:'no ' + pointValue + '-pt pick found' };
+    }
     const [gameId, pick] = entry;
     const game = w.games.find(g => g.id === gameId);
     if (!game || !game.winner) return { alive:true, pendingWeek:n }; // not decided yet — stop here, still alive
     if (game.winner === 'tie') return { alive:false, eliminatedWeek:n, reason: 'game tied' };
     if (pick.winner !== game.winner) return { alive:false, eliminatedWeek:n, reason: (pick.winner==='away'?game.away:game.home) + ' lost' };
+    // Pick won. Survivors update game by game, so keep checking later weeks.
   }
   return { alive:true };
 }
@@ -2047,7 +2043,7 @@ function renderSurvivorBoard(pointValue, title, playerIds){
   const prize = pointValue === 10 ? STATE.meta.survivor10pt : STATE.meta.survivor1pt;
   let html = '<h3 style="margin:0 0 4px;">' + esc(title) + (prize!=null ? ' <span class="badge gold">$' + prize + '</span>' : '') + '</h3>' +
     '<p class="muted" style="margin-bottom:10px;">Stay alive as long as your Week-by-week ' + pointValue + '-point pick keeps winning. One loss and you\'re out for the season.' + (prize!=null ? ' Whoever\'s still standing at the end wins $' + prize + '.' : '') + '</p>';
-  if (aliveCount === 1){
+  if (aliveCount === 1 && !results.find(r => r.status.alive).status.pendingWeek){
     const winner = results.find(r => r.status.alive);
     const winnerName = (STATE.players[winner.pid]||{}).displayName || 'Unknown';
     html += '<div class="banner" style="background:color-mix(in srgb, var(--gold) 18%, var(--bg-elevated));border-color:var(--gold);">&#127942; ' + esc(winnerName) + ' is the last one standing' + (prize!=null ? ' — wins $' + prize : '') + '.</div>';
